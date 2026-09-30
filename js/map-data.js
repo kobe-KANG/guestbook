@@ -95,5 +95,6 @@ const MAP_DATA = {
     "wedding-car": {"name":"웨딩카","shortMsg":"","longMsg":"분류: 탈것 (캐시)\n옵션: 이동속도 +150%, 행복 +200%\n설명: 경태와 민지가 평생 함께 달릴 인생 파티의 전용 탈것.","mode":"fixed","x":1002,"y":1351},
     "rps-machine": {"shortMsg":"연승 도전! ☕","longMsg":"","mode":"fixed","x":987,"y":1078},
     "chase-police": {"mode":"fixed","x":558,"y":899},
+    "cake-chef": {"mode":"fixed","x":117,"y":860},
   },
 };
