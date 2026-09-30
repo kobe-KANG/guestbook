@@ -274,7 +274,7 @@ html, body {
 }
 .photo-shade.dark { opacity: 1; transition-duration: .35s; }
 .photo-shade.white { background: #fff; }
-.photo-shade.flash { opacity: .85; transition: none; }
+.photo-shade.flash { opacity: 1; transition: none; }
 
 /* ---------- 토스트 ---------- */
 .toast {

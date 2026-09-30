@@ -156,27 +156,32 @@ class MapScene extends Phaser.Scene {
     const spots = this.photoSpots(this.guests.length);
     this.guests.forEach((g, i) => (spots[i] ? g.startPose(spots[i].name, spots[i].x) : g.startPose(g.floorName, g.x)));
 
-    // 모두 들어오게 카메라 맞춤 (머리·이름표 여유)
+    // 보는 화면은 맵 전체
     const all = [...this.couple, ...this.guests];
-    const x1 = Math.min(...all.map((c) => c.x)) - 100;
-    const x2 = Math.max(...all.map((c) => c.x)) + 100;
-    const y1 = Math.min(...all.map((c) => c.y)) - 160;
-    const y2 = Math.max(...all.map((c) => c.y)) + 50;
-    const cam = this.cameras.main;
-    Object.assign(this.view, { touched: true, zoom: Math.min(cam.width / (x2 - x1), cam.height / (y2 - y1)), center: { x: (x1 + x2) / 2, y: (y1 + y2) / 2 } });
+    Object.assign(this.view, { touched: true, zoom: this.view.fitZoom, center: { x: CONFIG.width / 2, y: CONFIG.height / 2 } });
     this.view.apply();
 
     shade.classList.remove('dark');
     await wait(1800); // 밝아지고 잠깐 포즈 (점프·앉기)
 
+    // 찰칵: 하얗게 번쩍 → 가려진 동안 캔버스를 맵 크기 × PHOTO.scale로 키워 맵 전체를 찍고 되돌림
+    shade.classList.add('white', 'flash');
+    const { width, height } = this.scale;
+    this.scale.resize(CONFIG.width * PHOTO.scale, CONFIG.height * PHOTO.scale);
+    Object.assign(this.view, { zoom: PHOTO.scale, center: { x: CONFIG.width / 2, y: CONFIG.height / 2 } });
+    this.view.apply();
+    await wait(100); // 화면 밖이라 숨겼던 캐릭터가 다시 보이게 몇 프레임
     const img = await new Promise((r) => this.game.renderer.snapshot(r));
+    this.scale.resize(width, height);
+    this.scale.setZoom(1 / DPR);
+    this.view.zoom = this.view.fitZoom;
+    this.view.apply();
+    // 큰 data URL을 그대로 내려받으면 브라우저가 죽을 수 있어 Blob URL로
     const a = document.createElement('a');
-    a.href = img.src;
+    a.href = URL.createObjectURL(await (await fetch(img.src)).blob());
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     a.download = `wedding-photo-${Date.now()}.png`;
     a.click();
-    // 찰칵: 하얗게 번쩍
-    shade.classList.add('white', 'flash');
-    shade.offsetWidth;
     shade.classList.remove('flash');
     UI.showToast('사진을 저장했어요');
     await wait(1200);
@@ -422,8 +427,8 @@ class MapScene extends Phaser.Scene {
   }
 }
 
-// 단체 사진: 하객 사이 간격(px, 맵 전체에 다 못 서면 max → min으로 좁힘)
-const PHOTO = { maxGap: 55, minGap: 20 };
+// 단체 사진: 하객 사이 간격(px, 맵 전체에 다 못 서면 max → min으로 좁힘), 저장 이미지 배율(맵 크기 × scale)
+const PHOTO = { maxGap: 55, minGap: 20, scale: 2 };
 
 /** 하객 층을 길이에 비례한 확률로 고른다 (긴 층에 더 많이, 짧은 층은 덜 붐비게) */
 function pickGuestFloor() {
