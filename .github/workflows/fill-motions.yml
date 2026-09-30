@@ -1,9 +1,13 @@
 name: Fill missing guest motions
 
 # 정면만 있고 동작 이미지(걷기·점프 등)가 AI 오류로 빠진 하객을 찾아 마저 만든다 (scripts/fill-motions.mjs)
+# GitHub 스케줄은 몇 시간씩 밀리거나 빠지기 일쑤라(이 저장소에선 15분마다로 해도 반나절에 1번) 믿지 않고,
+# 방명록 글이 올라오거나 바뀔 때마다 돈다. 스케줄은 혼잡한 정각을 피한 보조용
 on:
+  discussion:
+    types: [created, edited]
   schedule:
-    - cron: '*/15 * * * *' # 15분마다 (GitHub가 몇 분씩 늦게 돌리기도 함)
+    - cron: '7,37 * * * *'
   workflow_dispatch:
     inputs:
       max_guests:
