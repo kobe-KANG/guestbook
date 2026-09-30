@@ -4,8 +4,8 @@
 // - 개발자 모드: 연락처 보기 · 랭킹 초기화 · NPC 설정
 // 창 안의 <div class="event-board">를 채운다. 모양은 가위바위보 창 클래스(.rps-*)를 같이 씀
 
-function eventBoard(el, { path, title, score, password, isPlaying, close }) {
-  // score(기록) → '3연승' 같은 글자, password: { get, set } 이 창에서 확인된 내 캐릭터 비밀번호, isPlaying() 도전 중이면 연락처 칸 숨김, close() 창 닫기
+function eventBoard(el, { path, title, score, password, isPlaying, close, test }) {
+  // score(기록) → '3연승' 같은 글자, password: { get, set } 이 창에서 확인된 내 캐릭터 비밀번호, isPlaying() 도전 중이면 연락처 칸 숨김, close() 창 닫기, test() 개발자 모드 테스트 플레이 시작 (기록 안 됨)
   const root = el.querySelector('.event-board');
   root.innerHTML = `
     <form class="rps-contact" hidden novalidate>
@@ -24,6 +24,7 @@ function eventBoard(el, { path, title, score, password, isPlaying, close }) {
     <section class="rps-admin" hidden>
       <h3>🔧 관리 (개발자 모드)</h3>
       <div class="rps-admin-btns">
+        <button type="button" class="btn btn-ghost rps-admin-test">🧪 테스트 플레이 (기록 안 됨)</button>
         <button type="button" class="btn btn-ghost rps-admin-view">연락처 보기</button>
         <button type="button" class="btn btn-ghost rps-admin-reset">랭킹 초기화</button>
         <button type="button" class="btn btn-ghost rps-admin-npc">NPC 설정</button>
@@ -164,6 +165,8 @@ function eventBoard(el, { path, title, score, password, isPlaying, close }) {
     UI.showToast('랭킹을 초기화했어요', 2500);
     load();
   });
+
+  $('.rps-admin-test').addEventListener('click', () => test());
 
   $('.rps-admin-npc').addEventListener('click', () => {
     close();

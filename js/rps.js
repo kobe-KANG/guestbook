@@ -21,6 +21,7 @@ const Rps = (() => {
   let password = ''; // 이 창에서 한 번 맞게 입력하면 "다시 도전"에 그대로
   let busy = false;
   let mine = null;
+  let test = null; // 개발자 모드 테스트 플레이: { streak } — 서버 없이 브라우저가 판정, 기록 안 됨
 
   const store = {
     get: () => {
@@ -31,13 +32,22 @@ const Rps = (() => {
       }
     },
     set: (t) => {
+      if (test) return;
       try {
         t ? localStorage.setItem('rpsToken', t) : localStorage.removeItem('rpsToken');
       } catch {}
     },
   };
 
-  const api = (body) => postJson('/api/rps', body);
+  const api = (body) => (test ? testApi(body) : postJson('/api/rps', body));
+  const BEATS = { rock: 'scissors', scissors: 'paper', paper: 'rock' };
+  function testApi({ action, choice }) {
+    if (action !== 'play') return Promise.resolve({ token: 'test', streak: test.streak, test: true });
+    const cpu = Phaser.Utils.Array.GetRandom(Object.keys(BEATS));
+    const result = cpu === choice ? 'draw' : BEATS[choice] === cpu ? 'win' : 'lose';
+    if (result === 'win') test.streak++;
+    return Promise.resolve({ result, cpu, streak: test.streak, token: 'test', test: true });
+  }
   const board = eventBoard(el, {
     path: '/api/rps',
     title: '🏆 연승 랭킹',
@@ -45,6 +55,17 @@ const Rps = (() => {
     password: { get: () => password, set: (pw) => (password = pw) },
     isPlaying: () => Boolean(token),
     close: () => modal.close(),
+    test: () => {
+      if (busy || token) return;
+      test = { streak: 0 };
+      token = 'test';
+      myHand.textContent = cpuHand.textContent = '';
+      resultEl.className = 'rps-result';
+      showError('');
+      setStreak(0);
+      setPlaying(true);
+      flashText('TEST!', 'start');
+    },
   });
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -84,6 +105,7 @@ const Rps = (() => {
     resultEl.textContent = '';
     showError('');
     token = null;
+    test = null;
     setStreak(0);
     setPlaying(false);
     modal.open();
@@ -190,7 +212,9 @@ const Rps = (() => {
 
   /** 도전 끝 (졌거나 그만함): 결과 문구 + 랭킹 새로고침, "다시 도전" */
   function end(r, lost) {
+    const wasTest = Boolean(test);
     token = null;
+    test = null;
     store.set(null);
     setPlaying(false);
     $('.rps-go').textContent = '다시 도전';
@@ -202,7 +226,8 @@ const Rps = (() => {
       setTimeout(() => stage.classList.remove('shake'), 500);
     }
     const rank = r.rank && r.rank <= 3 ? ` · ${r.rank}위! ☕ 쿠폰 순위` : r.rank ? ` · ${r.rank}위` : '';
-    setTimeout(() => UI.showToast(`${r.streak}연승으로 기록했어요${rank}`, 3000), lost ? 900 : 0);
+    const msg = wasTest ? `테스트 ${r.streak}연승 (기록 안 됨)` : `${r.streak}연승으로 기록했어요${rank}`;
+    setTimeout(() => UI.showToast(msg, 3000), lost ? 900 : 0);
     board.render({ ranking: r.ranking, hasContact: r.hasContact });
     board.load(); // 내 도전 기록까지
   }
@@ -246,6 +271,7 @@ const Rps = (() => {
     if (!e.target.closest('[data-close]') || !token) return;
     const t = token;
     token = null;
+    if (test) return void (test = null); // 테스트는 기록 안 함
     api({ action: 'stop', token: t })
       .then((r) => (store.set(null), UI.showToast(`${r.streak}연승으로 기록했어요`, 2500)))
       .catch(() => {}); // 실패하면 다음에 열 때 localStorage 토큰으로 다시

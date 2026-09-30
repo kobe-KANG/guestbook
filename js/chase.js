@@ -18,8 +18,13 @@ const Chase = (() => {
   let mine = null;
   let game = null; // 진행 중인 게임
   let hooks = null; // main.js: { scene(), mine(), play() }
+  let lastSettings = null; // 개발자 모드 "NPC 설정" (게임이 끝나고 결과 창을 열 때도 관리 칸 유지)
 
-  const api = (body) => postJson('/api/chase', body);
+  // 개발자 모드 테스트 플레이(test)는 서버 없이 → 버틴 시간은 브라우저에서 재고 기록 안 됨
+  const api = (body, test) =>
+    !test ? postJson('/api/chase', body)
+      : body.action === 'start' ? Promise.resolve({ token: 'test', countdown: 3000 })
+      : Promise.resolve({ ms: Math.max(0, performance.now() - game.startAt), ended: true, rank: null, test: true });
   const fmtTime = (ms) => `${(ms / 1000).toFixed(1)}초`;
   const board = eventBoard(el, {
     path: '/api/chase',
@@ -28,6 +33,7 @@ const Chase = (() => {
     password: { get: () => password, set: (pw) => (password = pw) },
     isPlaying: () => Boolean(game),
     close: () => modal.close(),
+    test: () => startTest(),
   });
 
   // 화면 위 타이머 + 가운데 카운트다운
@@ -48,6 +54,8 @@ const Chase = (() => {
   /** settings: 개발자 모드일 때 "NPC 설정" 버튼이 여는 함수. result: 방금 끝난 게임 결과 */
   function open(settings, result) {
     if (game) return; // 도망치는 중엔 안 열림
+    if (result) settings = lastSettings;
+    else lastSettings = settings;
     mine = UI.getMine?.();
     board.reset(mine, settings);
     $('.chase-need').hidden = Boolean(mine);
@@ -57,7 +65,7 @@ const Chase = (() => {
     form.elements.password.value = password;
     resultEl.hidden = !result;
     if (result) {
-      const rank = result.rank && result.rank <= 3 ? ` · ${result.rank}위! ☕ 쿠폰 순위` : result.rank ? ` · ${result.rank}위` : '';
+      const rank = result.test ? ' (테스트 — 기록 안 됨)' : result.rank && result.rank <= 3 ? ` · ${result.rank}위! ☕ 쿠폰 순위` : result.rank ? ` · ${result.rank}위` : '';
       resultEl.textContent = `⏱ ${fmtTime(result.ms)} 버텼어요${rank}`;
       board.render({ ranking: result.ranking, hasContact: result.hasContact });
     }
@@ -92,14 +100,25 @@ const Chase = (() => {
     }
   });
 
+  /** 개발자 모드 테스트: 내 캐릭터 → 지금 조종 중인 캐릭터 → 아무 하객 순으로 도망침 */
+  async function startTest() {
+    const s = hooks?.scene();
+    const me = hooks?.mine() ?? (s?.control.controlled instanceof NpcCharacter ? null : s?.control.controlled) ?? Phaser.Utils.Array.GetRandom(s?.guests ?? []);
+    if (!s || !me) return UI.showToast('도망칠 캐릭터가 없어요.', 2500);
+    modal.close();
+    const r = await api({ action: 'start' }, true);
+    begin(s, me, r.token, r.countdown, true);
+  }
+
   // ---------- 게임 ----------
 
-  function begin(s, me, token, countdown) {
-    hooks.play(); // 내 캐릭터 조종 + 확대
+  function begin(s, me, token, countdown, test = false) {
+    if (me === hooks.mine()) hooks.play(); // 내 캐릭터 조종 + 확대
+    else s.control.take(me, { zoom: true }); // 테스트: 다른 캐릭터
     // 추격자: 신랑·신부 + 나를 뺀 하객 중 무작위 몇 명
     const others = Phaser.Utils.Array.Shuffle(s.guests.filter((g) => g !== me && g.active)).slice(0, cfg.guests);
     const graph = buildGraph();
-    const chasers = [...s.couple.map((c) => ({ c, speed: cfg.coupleSpeed })), ...others.map((c) => ({ c, speed: cfg.guestSpeed }))];
+    const chasers = [...s.couple.filter((c) => c !== me).map((c) => ({ c, speed: cfg.coupleSpeed })), ...others.map((c) => ({ c, speed: cfg.guestSpeed }))];
     for (const { c, speed } of chasers) {
       s.control.controlled === c && s.control.release();
       c.startChase(brain(c, me, graph), 0); // 카운트다운 동안은 멈춰 있음 (속도 0)
@@ -108,7 +127,7 @@ const Chase = (() => {
       c.dropAt(p.name, p.x);
     }
     const startAt = performance.now() + countdown;
-    game = { s, me, token, chasers, startAt, started: false, over: false };
+    game = { s, me, token, test, chasers, startAt, started: false, over: false };
     s.onTick = tick;
     hud.hidden = false;
     hud.querySelector('.chase-time').textContent = `⏱ ${fmtTime(0)}`;
@@ -175,7 +194,7 @@ const Chase = (() => {
     }
     let result = null;
     try {
-      result = await api({ action: 'end', token: g.token });
+      result = await api({ action: 'end', token: g.token }, g.test);
     } catch (err) {
       UI.showToast(err.message, 3000);
     }

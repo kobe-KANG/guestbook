@@ -40,7 +40,9 @@ const Cake = (() => {
   let mine = null;
   let g = null; // 진행 중인 게임
 
-  const api = (body) => postJson('/api/cake', body);
+  // 개발자 모드 테스트 플레이(test)는 서버 없이 → 기록 안 됨
+  const api = (body, test) =>
+    test ? Promise.resolve({ score: body.score, ended: true, rank: null }) : postJson('/api/cake', body);
   const board = eventBoard(el, {
     path: '/api/cake',
     title: '🏆 케이크 높이 랭킹',
@@ -48,6 +50,7 @@ const Cake = (() => {
     password: { get: () => password, set: (pw) => (password = pw) },
     isPlaying: () => Boolean(g),
     close: () => modal.close(),
+    test: () => g || begin(null, true),
   });
 
   function showError(msg) {
@@ -106,10 +109,11 @@ const Cake = (() => {
 
   // ---------- 게임 ----------
 
-  function begin(token) {
+  function begin(token, test = false) {
     const now = performance.now();
     g = {
       token,
+      test,
       stack: [{ x: (W - BASE_W) / 2, w: BASE_W, c: 0 }],
       moving: null,
       drop: null, // 떨어지는 중인 시트 { x, w, c, t0 }
@@ -219,14 +223,14 @@ const Cake = (() => {
     run.done = run.over = true;
     let r = null;
     try {
-      r = await api({ action: 'end', token: run.token, score: run.score, floors: run.floors });
+      r = await api({ action: 'end', token: run.token, score: run.score, floors: run.floors }, run.test);
     } catch (err) {
       UI.showToast(err.message, 3000);
     }
     g = null;
-    const rank = r?.rank && r.rank <= 3 ? ` · ${r.rank}위! ☕ 쿠폰 순위` : r?.rank ? ` · ${r.rank}위` : '';
+    const rank = run.test ? ' (테스트 — 기록 안 됨)' : r?.rank && r.rank <= 3 ? ` · ${r.rank}위! ☕ 쿠폰 순위` : r?.rank ? ` · ${r.rank}위` : '';
     if (stop || el.hidden) {
-      if (r) UI.showToast(`🎂 ${run.floors}층 ${r.score}점으로 기록했어요${rank}`, 3000);
+      if (r) UI.showToast(run.test ? `🎂 테스트 ${run.floors}층 ${r.score}점 (기록 안 됨)` : `🎂 ${run.floors}층 ${r.score}점으로 기록했어요${rank}`, 3000);
       return;
     }
     setPlaying(false);
