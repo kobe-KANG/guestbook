@@ -456,6 +456,7 @@ class GuestCharacter extends Character {
 
   bubbleText() {
     const p = this.persona;
+    if (this.posing) return this.info.shortMsg; // 단체 사진 중엔 성향 말 대신 한줄 멘트
     if (this.idlePose === 'sleep') return null; // 자는 동안은 말풍선 대신 z 글자 (startSleepFx)
     return p?.lines && Math.random() < p.lineChance ? Phaser.Utils.Array.GetRandom(p.lines) : this.info.shortMsg;
   }
