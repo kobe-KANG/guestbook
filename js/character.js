@@ -203,10 +203,12 @@ class Character extends Phaser.GameObjects.Container {
 
   scheduleBubble(delay) {
     this.later(delay, () => {
-      // 수다쟁이: 말풍선 전에 "…" 입력 중 표시를 잠깐 보여 준다
-      if (this.persona?.typing && this.state !== 'climb') {
+      // 수다쟁이: 말풍선 전에 "…" 입력 중 표시를 잠깐 보여 준다. keepBubble(단체 사진 내 캐릭터)이면 지금 말풍선 유지
+      if (this.keepBubble) {
+        // 그대로
+      } else if (this.persona?.typing && this.state !== 'climb') {
         this.typingDots(700);
-        this.later(700, () => this.say(this.bubbleText()));
+        this.later(700, () => !this.keepBubble && this.say(this.bubbleText()));
       } else this.say(this.bubbleText());
       const gap = Phaser.Math.Between(CONFIG.bubble.minGap, CONFIG.bubble.maxGap) * (this.persona?.bubbleGap ?? 1); // 수다쟁이는 자주
       this.scheduleBubble(CONFIG.bubble.duration + gap);

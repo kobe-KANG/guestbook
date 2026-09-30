@@ -133,7 +133,7 @@ class MapScene extends Phaser.Scene {
    * 메뉴 "전체 사진 찍기": 화면이 잠깐 까매진 사이 하객을 신랑·신부 가까이 줄 세움 → 밝아지면 찰칵(PNG 저장)
    * → 그 자리에서 다시 돌아다니고 원래 모드(조종 중이던 캐릭터 / 보던 화면)로 돌아감
    */
-  async groupPhoto() {
+  async groupPhoto(mine) {
     if (this.photoing) return;
     if (this.onTick) return UI.showToast('게임 중에는 사진을 찍을 수 없어요');
     this.photoing = true;
@@ -162,7 +162,13 @@ class MapScene extends Phaser.Scene {
     this.view.apply();
 
     shade.classList.remove('dark');
-    await wait(1800); // 밝아지고 잠깐 포즈 (점프·앉기)
+    await wait(1000); // 밝아지고 잠깐 포즈 (점프·앉기)
+    // 내 캐릭터 한줄 멘트는 꼭 찍히게 (다른 말풍선이 덮지 않게 keepBubble)
+    if (mine?.active) {
+      mine.keepBubble = true;
+      mine.say(mine.info.shortMsg);
+    }
+    await wait(800);
 
     // 찰칵: 하얗게 번쩍 → 가려진 동안 캔버스를 맵 크기 × PHOTO.scale로 키워 맵 전체를 찍고 되돌림
     shade.classList.add('white', 'flash');
@@ -186,6 +192,7 @@ class MapScene extends Phaser.Scene {
     UI.showToast('사진을 저장했어요');
     await wait(1200);
 
+    if (mine) mine.keepBubble = false;
     for (const c of all) {
       c.posing = false;
       c.idlePose = null;
