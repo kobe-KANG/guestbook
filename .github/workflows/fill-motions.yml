@@ -3,7 +3,7 @@ name: Fill missing guest motions
 # 정면만 있고 동작 이미지(걷기·점프 등)가 AI 오류로 빠진 하객을 찾아 마저 만든다 (scripts/fill-motions.mjs)
 on:
   schedule:
-    - cron: '17 * * * *' # 매시간
+    - cron: '*/15 * * * *' # 15분마다 (GitHub가 몇 분씩 늦게 돌리기도 함)
   workflow_dispatch:
     inputs:
       max_guests:
