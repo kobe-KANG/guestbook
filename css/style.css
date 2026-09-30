@@ -263,6 +263,19 @@ html, body {
   text-align: center;
 }
 
+/* ---------- 전체 사진 찍기 (도는 동안 화면 입력 막음) ---------- */
+.photo-shade {
+  position: fixed;
+  inset: 0;
+  z-index: 190;
+  background: #000;
+  opacity: 0;
+  transition: opacity .5s ease;
+}
+.photo-shade.dark { opacity: 1; transition-duration: .35s; }
+.photo-shade.white { background: #fff; }
+.photo-shade.flash { opacity: .85; transition: none; }
+
 /* ---------- 토스트 ---------- */
 .toast {
   position: fixed;

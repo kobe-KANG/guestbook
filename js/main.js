@@ -135,6 +135,8 @@
     UI.openLobby();
   };
 
+  UI.onPhoto = () => scene().groupPhoto();
+
   // 방금 등록한 하객은 배포를 기다리지 않고 바로 맵에 등장시킨다
   // 등록한 캐릭터는 시작점(개발자 모드에서 지정)에 나타나고 바로 플레이 모드 + 확대
   UI.onGuestCreated = (info) => {

@@ -1422,6 +1422,7 @@ const UI = (() => {
     edit: () => UI.onEditMine?.(),
     list: openList,
     gallery: () => openGallery(),
+    photo: () => UI.onPhoto?.(),
     lobby: () => UI.onLobby?.(),
   };
 
@@ -1510,6 +1511,7 @@ const UI = (() => {
     onToggleMode: null, // 메뉴 "모드 전환"
     onEditMine: null, // 메뉴 "캐릭터 수정"
     onLobby: null, // 메뉴 "로비로 돌아가기"
+    onPhoto: null, // 메뉴 "전체 사진 찍기"
     onModalChange: null,
     getGuests: null,
     getMine: null, // 지금 내 캐릭터 { info, avatarUrl } | null (main.js)

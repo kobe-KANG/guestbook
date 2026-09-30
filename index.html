@@ -58,6 +58,12 @@
         </button>
       </li>
       <li>
+        <button type="button" data-menu="photo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+          전체 사진 찍기
+        </button>
+      </li>
+      <li>
         <button type="button" data-menu="lobby">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>
           로비로 돌아가기
@@ -638,6 +644,8 @@
   </div>
 
   <div id="toast" class="toast" hidden></div>
+  <!-- 전체 사진 찍기: 까매졌다 밝아짐(.dark), 찰칵 번쩍(.flash). 도는 동안 입력 막음 -->
+  <div id="photo-shade" class="photo-shade" hidden></div>
 
   <!-- 배경음악 켜기/끄기 (audio/bgm.mp3 가 있을 때만 보임) -->
   <button type="button" id="bgm-btn" class="bgm-btn" aria-pressed="true" aria-label="배경음악 끄기" hidden>

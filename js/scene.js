@@ -129,6 +129,108 @@ class MapScene extends Phaser.Scene {
     character.destroy();
   }
 
+  /**
+   * 메뉴 "전체 사진 찍기": 화면이 잠깐 까매진 사이 하객을 신랑·신부 가까이 줄 세움 → 밝아지면 찰칵(PNG 저장)
+   * → 그 자리에서 다시 돌아다니고 원래 모드(조종 중이던 캐릭터 / 보던 화면)로 돌아감
+   */
+  async groupPhoto() {
+    if (this.photoing) return;
+    if (this.onTick) return UI.showToast('게임 중에는 사진을 찍을 수 없어요');
+    this.photoing = true;
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const shade = document.getElementById('photo-shade');
+    const prev = this.control.controlled;
+    const saved = { zoom: this.view.zoom, center: { ...this.view.center }, touched: this.view.touched };
+
+    shade.hidden = false;
+    shade.offsetWidth; // 트랜지션이 걸리게
+    shade.classList.add('dark');
+    await wait(400);
+
+    // 까만 동안 자리 잡기
+    this.control.release();
+    for (const c of this.couple) {
+      c.posing = true;
+      c.standAtHome();
+    }
+    const spots = this.photoSpots(this.guests.length);
+    this.guests.forEach((g, i) => (spots[i] ? g.startPose(spots[i].name, spots[i].x) : g.startPose(g.floorName, g.x)));
+
+    // 모두 들어오게 카메라 맞춤 (머리·이름표 여유)
+    const all = [...this.couple, ...this.guests];
+    const x1 = Math.min(...all.map((c) => c.x)) - 100;
+    const x2 = Math.max(...all.map((c) => c.x)) + 100;
+    const y1 = Math.min(...all.map((c) => c.y)) - 160;
+    const y2 = Math.max(...all.map((c) => c.y)) + 50;
+    const cam = this.cameras.main;
+    Object.assign(this.view, { touched: true, zoom: Math.min(cam.width / (x2 - x1), cam.height / (y2 - y1)), center: { x: (x1 + x2) / 2, y: (y1 + y2) / 2 } });
+    this.view.apply();
+
+    shade.classList.remove('dark');
+    await wait(1800); // 밝아지고 잠깐 포즈 (점프·앉기)
+
+    const img = await new Promise((r) => this.game.renderer.snapshot(r));
+    const a = document.createElement('a');
+    a.href = img.src;
+    a.download = `wedding-photo-${Date.now()}.png`;
+    a.click();
+    // 찰칵: 하얗게 번쩍
+    shade.classList.add('white', 'flash');
+    shade.offsetWidth;
+    shade.classList.remove('flash');
+    UI.showToast('사진을 저장했어요');
+    await wait(1200);
+
+    for (const c of all) {
+      c.posing = false;
+      c.idlePose = null;
+      c.stateTimer = 0; // 바로 다시 돌아다님
+    }
+    if (prev?.active) this.control.take(prev, { zoom: true });
+    else {
+      Object.assign(this.view, saved);
+      this.view.apply();
+    }
+    shade.hidden = true;
+    shade.classList.remove('white');
+    this.photoing = false;
+  }
+
+  /**
+   * 단체 사진 자리 n개 (맵 전체 발판, 신랑·신부에서 가까운 순). 다 못 서면 간격을 max → min으로 좁히고,
+   * 최소 간격으로도 모자라면 같은 자리에 반 칸씩 비껴 겹쳐 세운다
+   */
+  photoSpots(n) {
+    let spots = [];
+    for (let gap = PHOTO.maxGap; gap >= PHOTO.minGap; gap -= 5) {
+      spots = this.photoGrid(gap);
+      if (spots.length >= n) return spots.slice(0, n);
+    }
+    if (!spots.length) return [];
+    return Array.from({ length: n }, (_, i) => {
+      const s = spots[i % spots.length];
+      const round = Math.floor(i / spots.length); // 0 = 제자리, 1 = 오른쪽 7px, 2 = 왼쪽 7px, 3 = 오른쪽 14px …
+      return { ...s, x: s.x + Math.ceil(round / 2) * 7 * (round % 2 ? 1 : -1) };
+    });
+  }
+
+  /** 신랑·신부 가운데를 기준으로 발판마다 gap 간격 칸 + 거리 d (세로로 먼 발판은 덜 가깝게) → 가까운 순 */
+  photoGrid(gap) {
+    const cx = (this.couple[0].x + this.couple[1].x) / 2;
+    const cy = (this.couple[0].y + this.couple[1].y) / 2;
+    const spots = [];
+    for (const [name, f] of Object.entries(CONFIG.floors)) {
+      const { x1, x2 } = floorSpan(f);
+      for (let k = Math.ceil((x1 + 10 - cx) / gap); cx + k * gap <= x2 - 10; k++) {
+        const x = cx + k * gap;
+        const y = floorY(f, x);
+        if (this.couple.some((c) => Math.abs(c.x - x) < 40 && Math.abs(c.y - y) < 30)) continue; // 신랑·신부 자리
+        spots.push({ name, x, d: Math.hypot(x - cx, (y - cy) * 2) });
+      }
+    }
+    return spots.sort((a, b) => a.d - b.d);
+  }
+
   /** 맵 전체에 꽃잎이 조금씩 흩날리는 효과 (위에서 천천히 떨어지며 좌우로 흔들림) */
   addPetals() {
     // 꽃잎 텍스처 2종 (진분홍 / 연분홍), 확대해도 선명하게 2배로 그림
@@ -319,6 +421,9 @@ class MapScene extends Phaser.Scene {
     this.tweens.add({ targets: heart, scale: 1.2, duration: 500, yoyo: true, repeat: -1 });
   }
 }
+
+// 단체 사진: 하객 사이 간격(px, 맵 전체에 다 못 서면 max → min으로 좁힘)
+const PHOTO = { maxGap: 55, minGap: 20 };
 
 /** 하객 층을 길이에 비례한 확률로 고른다 (긴 층에 더 많이, 짧은 층은 덜 붐비게) */
 function pickGuestFloor() {

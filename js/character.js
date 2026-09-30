@@ -651,8 +651,8 @@ class GuestCharacter extends Character {
       this.sprite.play(`${key}_walk`, true);
     } else if (this.idlePose === 'dance' && this.danceStyle === 'shuffle' && this.motions.walk) {
       this.sprite.play(`${key}_walk`, true); // 셔플 스텝: 걷기 모션 (좌우 뒤집기는 tickShuffle)
-    } else if (this.idlePose === 'sleep' && this.motions.prone) {
-      this.setDir(this.dir); // 잠꾸러기: 엎드려 자기
+    } else if ((this.idlePose === 'sleep' || this.idlePose === 'crouch') && this.motions.prone) {
+      this.setDir(this.dir); // 잠꾸러기: 엎드려 자기 / 단체 사진: 앉기
       this.sprite.play(`${key}_prone`, true);
     } else {
       this.sprite.stop();
@@ -700,6 +700,37 @@ class GuestCharacter extends Character {
       this.updatePose();
     }
     this.setDepth(this.y);
+  }
+
+  /** 단체 사진: name 발판 x에 서서 자리를 지킨다 (가끔 제자리 점프·앉기만). posing = false면 다시 돌아다님 */
+  startPose(name, x) {
+    this.dropAt(name, x);
+    this.posing = true;
+    this.idlePose = null;
+    this.stateTimer = Phaser.Math.Between(300, 1500);
+    this.updatePose();
+  }
+
+  tickPose(delta) {
+    let jumpOffset = 0;
+    if (this.jump) {
+      this.jump.t += delta;
+      const p = this.jump.t / this.jump.duration;
+      if (p >= 1) {
+        this.jump = null;
+        this.updatePose();
+      } else jumpOffset = CONFIG.motion.jumpHeight * 4 * p * (1 - p);
+    } else if ((this.stateTimer -= delta) <= 0) {
+      // 서 있기 / 앉기 / 점프 중 하나
+      const r = Math.random();
+      this.idlePose = r < 0.25 && this.motions.prone ? 'crouch' : null;
+      this.stateTimer = Phaser.Math.Between(800, 2000);
+      if (r > 0.7 && this.canJump !== false) this.startJump();
+      else this.updatePose();
+    }
+    const groundY = floorY(this.floor, this.x);
+    this.y = groundY - jumpOffset;
+    this.setDepth(groundY);
   }
 
   /** 다른 발판으로 점프해 건너가기 (포물선으로 착지점까지) */
@@ -1045,6 +1076,7 @@ class GuestCharacter extends Character {
     if (this.held) return; // 개발자 모드에서 끌고 있는 중
     if (this.chaser) return this.tickControlled(delta, this.chaser.input(delta), this.chaser.speed);
     if (this.controlled) return this.tickControlled(delta, this.scene.control.input);
+    if (this.posing) return this.tickPose(delta);
     const m = CONFIG.motion;
 
     if (this.state === 'leap') {
@@ -1211,7 +1243,8 @@ class CoupleCharacter extends GuestCharacter {
 
   tick(delta) {
     // 고정이면 제자리. 아니면 무대 위에서만 돌아다닌다 (이어진 무대 조각끼리만 걷거나 점프로 건너감)
-    if (this.controlled || (!coupleFixed() && isStage(this.floorName))) super.tick(delta);
+    // 단체 사진(posing) 중엔 제자리
+    if (this.controlled || (!this.posing && !coupleFixed() && isStage(this.floorName))) super.tick(delta);
   }
 }
 
