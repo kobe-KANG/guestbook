@@ -80,10 +80,10 @@ prompt/                 캐릭터/걷기 스프라이트 생성용 프롬프트 
 0. (선택) AI 캐릭터 생성: 사진을 긴 변 1024px JPEG로 축소 → `POST /api/character {type:'front'}` → 정면 webp (사진 없이 누르면 image 없이 보내고, 서버가 `prompt/create-character-noref.txt` + 무작위 특징(성별 느낌·헤어·머리색·의상·액세서리)으로 글만 가지고 생성 — images/generations는 JSON 요청) → 그걸 기준으로 `walk`(왼쪽 걷기), `jump`(왼쪽 점프 포즈, 제자리), `ladder`/`rope`(뒷모습 오르기), `prone`(엎드리기 2프레임)을 **모두 동시에(병렬)** 생성.
    - 방향: 정면(front)·걷기·점프 프롬프트 모두 "이미지 왼쪽을 바라보고 왼쪽으로 이동"을 강제(`[DIRECTION — ALWAYS LEFT]`). 게임은 왼쪽 기준 이미지를 코드로 뒤집어 오른쪽 이동을 표현하므로, 동작마다 방향이 섞이면 걷기/점프 방향이 어긋남.
    - 모든 캐릭터 프롬프트에 "소지품 금지" 섹션: 몸에 착용하는 것(액세서리·모자·안경 등)만 그리고, 손에 들거나 메는 물건(풍선·꽃다발·가방·캐리어·방망이·무기 등)은 사진에 있어도 빼게 함 — 소지품이 실루엣 밖으로 나오면 크기 계산(머리 폭·키)이 틀어져 캐릭터가 작아 보임.
-   - 동작 하나가 실패해도 나머지로 등록 가능. 빠진 동작은 fill-motions 워크플로가 매시간 저장된 front.png(흰 배경 1024로 키움)를 참고해 다시 만듦. 프롬프트는 `prompt/create-character-{walk,jump,ladder-climbing,rope-climbing,prone}.txt`.
+   - 위저드에선 동작이 하나라도 실패하면 2단계에서 못 넘어가고 생성 버튼이 "재시도하기"(실패한 것만 다시, 횟수 차감 없음, `missing`)로 바뀜. 예전 글 등으로 빠진 동작은 fill-motions 워크플로가 매시간 저장된 front.png(흰 배경 1024로 키움)를 참고해 다시 만듦. 프롬프트는 `prompt/create-character-{walk,jump,ladder-climbing,rope-climbing,prone}.txt`.
    - 프레임 수는 동작마다 `CONFIG.sprite.motionFrames`(prone만 2), 표시 높이 비율 `motionHeight`(prone 0.5 — 엎드리면 낮고 길어서).
    - 각 호출 최대 ~2분. 모델은 `OPENAI_IMAGE_MODEL`(쉼표 구분, 기본 gpt-image-2 → 1.5 → 1 순으로 시도, 없는 모델이면 다음으로), 품질 `OPENAI_IMAGE_QUALITY`(기본 medium).
-   - 걷기 생성만 실패하면 정면만으로 등록 가능. 한 접속당 생성 3회 제한(`CONFIG.ai.maxGenerations`, 클라이언트 측).
+   - 한 접속당 생성 3회 제한(`CONFIG.ai.maxGenerations`, 클라이언트 측).
    - 동작 스트립 프레임 분할(`splitFrames`): 열 무게 k-means로 프레임 중심 4개 → 붙어 있는 픽셀 덩어리 단위로 가까운 중심에 배정(두 프레임에 걸친 덩어리는 픽셀별). 긴 머리·치마가 옆 프레임에 닿아도 조각이 섞이지 않음.
    - 프레임은 각자 영역만 잘라 **발(아래)을 맞춤**(AI가 점프 프레임을 위아래로 띄워 그려도 무시). 크기는 사람형 캐릭터면 **정면 이미지의 머리 폭**(`measureHead`: 위쪽 40% 안 가장 넓은 줄)에 동작 프레임 머리 폭 중간값을 맞춤 → 웅크린 점프도 서 있을 때와 같은 크기. 누운 자세(`lyingMotions`: prone, sleep)와 네발 동물 NPC는 가장 키 큰 프레임 = 키 × `motionHeight`.
    - 자른 프레임은 좌우에 `CONFIG.sprite.framePadding`(12%) 여유를 둔다. 프롬프트에도 프레임 사이 빈 간격(셀 폭 15% 이상)·좌우 여백을 요구하는 `[FRAME SPACING / SAFE MARGIN]` 섹션이 있음.
@@ -126,7 +126,7 @@ prompt/                 캐릭터/걷기 스프라이트 생성용 프롬프트 
 - 전체 화면 4단계: 1 이름·관계(side/relation 칩) → 2 성향 칩·칭호·능력치·사진 → AI 캐릭터 → 3 한줄 멘트·방명록(글자 수) → 4 입력 내용 확인 카드 + 비밀번호 → 등록. 위: "로비" 버튼, "n / 4", 4칸 진행 막대.
 - 단계 이동은 `showStep(n)`(앞으로 = 오른쪽에서, 뒤로 = 왼쪽에서 밀려 들어옴 `slide-fwd/back`, reduced-motion이면 없음), 필수 확인은 `checkStep(n)`. 등록할 때 앞 단계에 빠진 게 있으면 그 단계로 돌아가 안내.
 - 관계·성향은 선택 칸 대신 라디오 칩(`fillChips`, `data-chips`) — 캐릭터 수정 폼도 같은 칩.
-- AI 생성 중에도 다음 단계로 넘어갈 수 있음 → 등록 버튼만 생성이 끝날 때까지 "캐릭터 완성 기다리는 중...".
+- AI 생성을 시작했으면 정면·움직임이 다 만들어질 때까지 2단계에서 못 넘어감(`checkStep(2)`). API 실패 시 "재시도하기" 버튼. 생성을 아예 안 누르면 그대로 넘어감.
 - 글꼴: 사이트 전체 Pretendard(jsDelivr, dynamic subset). 팝업·버튼·입력칸·메뉴·토스트도 위저드와 같은 스타일(흰 머리글, 납작한 코랄 버튼, 둥근 입력칸).
 
 ## 캐릭터 조종 (일반 방문자)

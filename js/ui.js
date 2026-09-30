@@ -597,7 +597,7 @@ const UI = (() => {
   });
 
   // ---------- 캐릭터 만들기 (4단계: 내 정보 → 캐릭터 → 한마디·방명록 → 비밀번호·등록) ----------
-  // 한 단계씩 옆으로 밀려 들어옴. AI 생성(1~3분)은 기다리지 않고 다음 단계로 넘어갈 수 있고, 등록만 생성이 끝날 때까지 막음
+  // 한 단계씩 옆으로 밀려 들어옴. AI 생성(1~3분)을 시작했으면 움직임까지 다 만들어져야 2단계에서 넘어갈 수 있음
   const writeEl = document.getElementById('write-modal');
   const writeModal = setupModal(writeEl);
   const form = document.getElementById('write-form');
@@ -617,6 +617,8 @@ const UI = (() => {
   let preparing = null; // 업로드용 이미지 처리 Promise → { front, walk } | null
   let generating = false;
   let generationCount = 0;
+  let aiSources = null; // AI로 만든 원본 { front, walk, … }
+  let missing = []; // API 실패로 못 만든 것 ('front' 또는 동작) → 재시도하기로 이것만 다시
   let photoUrl = null;
   const statGrid = form.querySelector('.stat-grid');
   const diceBtn = form.querySelector('.dice-btn');
@@ -675,6 +677,8 @@ const UI = (() => {
       if (!relation) return '어떤 사이인지 골라 주세요.';
     }
     if (n === 2 && !personality) return '캐릭터 성향을 골라 주세요.';
+    if (n === 2 && generating) return '캐릭터를 만드는 중이에요. 움직임까지 다 만들어지면 넘어갈 수 있어요.';
+    if (n === 2 && missing.length) return '만들지 못한 이미지가 있어요. 재시도하기를 눌러 주세요.';
     if (n === 3 && (!shortMsg || !longMsg)) return '한줄 멘트와 방명록을 모두 입력해 주세요.';
     if (n === 4 && [...password].length < 4) return '비밀번호를 4자 이상 입력해 주세요.';
     return '';
@@ -769,6 +773,10 @@ const UI = (() => {
 
   function updateGenerateLabel() {
     const left = CONFIG.ai.maxGenerations - generationCount;
+    if (missing.length) {
+      generateBtn.textContent = '재시도하기'; // API 실패는 횟수 제한 없이 실패한 것만 다시
+      return;
+    }
     generateBtn.textContent = generationCount === 0 ? '캐릭터 생성' : `다시 만들기 (${left}회 남음)`;
     if (left <= 0) generateBtn.disabled = true;
   }
@@ -787,31 +795,38 @@ const UI = (() => {
     }
   }
 
+  const MOTION_LABELS = { walk: '걷기', jump: '점프', ladder: '사다리', rope: '로프', prone: '엎드리기' };
+
   generateBtn.addEventListener('click', async () => {
     showError('');
     const photo = fields.photo.files[0]; // 없으면 사진 없이 무작위 캐릭터를 새로 그린다
-    if (generationCount >= CONFIG.ai.maxGenerations) return showError('생성 가능 횟수를 모두 썼어요.');
-    generationCount++;
+    if (!missing.length) {
+      if (generationCount >= CONFIG.ai.maxGenerations) return showError('생성 가능 횟수를 모두 썼어요.');
+      generationCount++;
+      missing = ['front'];
+    }
 
     try {
-      const front = await withProgress('캐릭터 도트 찍는 중... (1/2)', async () =>
-        generateCharacter('front', photo ? await resizePhoto(photo) : null)
-      );
-      const sources = { front };
-      await setSources(sources);
+      if (missing.includes('front')) {
+        const front = await withProgress('캐릭터 도트 찍는 중... (1/2)', async () =>
+          generateCharacter('front', photo ? await resizePhoto(photo) : null)
+        );
+        aiSources = { front };
+        missing = [...CONFIG.sprite.motions];
+        await setSources(aiSources);
+      }
 
-      // 나머지 동작(걷기·점프·사다리·로프)은 정면 캐릭터를 기준으로 전부 동시에 만든다.
-      // 하나가 실패해도 나머지로 등록할 수 있다.
-      const motions = CONFIG.sprite.motions;
+      // 동작(걷기·점프·사다리·로프·엎드리기)은 정면 캐릭터를 기준으로 동시에 만든다. 실패한 것만 missing에 남김
+      const todo = missing;
       const failed = [];
       let done = 0;
       await withProgress(
-        () => `움직임 만드는 중... (2/2, ${done}/${motions.length})`,
+        () => `움직임 만드는 중... (2/2, ${done}/${todo.length})`,
         () =>
           Promise.all(
-            motions.map(async (motion) => {
+            todo.map(async (motion) => {
               try {
-                sources[motion] = await generateCharacter(motion, front);
+                aiSources[motion] = await generateCharacter(motion, aiSources.front);
               } catch (err) {
                 failed.push({ motion, err });
               }
@@ -819,16 +834,16 @@ const UI = (() => {
             })
           )
       );
-      await setSources({ ...sources });
+      missing = failed.map((f) => f.motion);
+      await setSources({ ...aiSources });
       if (failed.length) {
-        const labels = { walk: '걷기', jump: '점프', ladder: '사다리', rope: '로프', prone: '엎드리기' };
         showError(
-          `${failed.map((f) => labels[f.motion]).join(', ')} 동작은 만들지 못했어요. ` +
-            `이대로 등록해도 되고, 다시 만들 수도 있어요. (${failed[0].err.message})`
+          `${missing.map((m) => MOTION_LABELS[m]).join(', ')} 동작을 만들지 못했어요. ` +
+            `재시도하기를 눌러 주세요. (${failed[0].err.message})`
         );
       }
     } catch (err) {
-      showError(err.message);
+      showError(`${err.message} 재시도하기를 눌러 주세요.`);
     } finally {
       setBusy(false);
       updateGenerateLabel();
@@ -841,6 +856,9 @@ const UI = (() => {
     renderStats(statGrid, stats);
     setPhoto(null);
     preparing = null;
+    aiSources = null;
+    missing = [];
+    updateGenerateLabel();
     setImg(frontPreview, null);
     previewEmpty.hidden = false;
     longCount.textContent = '0';
