@@ -1328,6 +1328,11 @@ class NpcCharacter extends GuestCharacter {
     return this.npc ? npcMode(this.npc) : 'default';
   }
 
+  // 이벤트(게임) NPC는 하객에게 둘러싸여도 맨 앞에: 캐릭터 depth = 발 y(맵 높이 1402 이하)라 5000을 더하면 늘 위 (꽃잎 15000보다는 아래)
+  setDepth(depth) {
+    return super.setDepth(this.npc?.event ? depth + 5000 : depth);
+  }
+
   /** 자리 { floor, x }에 선다 (x가 null이면 사다리/로프를 피한 랜덤 위치) */
   placeAt({ floor, x, y }) {
     this.placedMode = this.mode;
