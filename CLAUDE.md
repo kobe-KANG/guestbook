@@ -42,6 +42,7 @@ scripts/cleanup-guest-images.mjs  방명록에서 참조하지 않는 img/galler
 img/guests/<uuid>/ 폴더 git rm
 .github/workflows/deploy.yml  Pages 배포 워크플로
 .github/workflows/cleanup-images.yml  매일 03:00 KST 고아 이미지 정리 (수동 실행 시 기본 dry run)
+.github/workflows/fill-motions.yml  매시간 정면만 있고 동작 이미지가 빠진 하객을 찾아 마저 생성(scripts/fill-motions.mjs: 헤드리스 Chrome으로 배포 사이트를 열어 generateCharacter → prepareSpriteImages, 커밋 후 deploy.yml 실행)
 img/npc/<groom|bride>/   신랑신부 스프라이트. 하객과 같은 파일명(front, walk, jump, ladder, rope). 원본 png(각 1MB 안팎)는 보관용, 실제로는 webp(q0.9, 44~146KB) 사용
 img/dummy/<dummy-n>/     더미 하객 스프라이트 (DUMMY_GUESTS용, 테스트 캐릭터 이미지 복사본 — img/guests/는 방명록 글을 지우면 정리 작업이 지우므로 따로 보관)
 img/guests/<uuid>/       하객 스프라이트 (API가 커밋). front.png + 동작 스트립 walk/jump/ladder/rope/prone.png(투명 배경, 4프레임, 높이 128, 모두 선택)
@@ -79,7 +80,7 @@ prompt/                 캐릭터/걷기 스프라이트 생성용 프롬프트 
 0. (선택) AI 캐릭터 생성: 사진을 긴 변 1024px JPEG로 축소 → `POST /api/character {type:'front'}` → 정면 webp (사진 없이 누르면 image 없이 보내고, 서버가 `prompt/create-character-noref.txt` + 무작위 특징(성별 느낌·헤어·머리색·의상·액세서리)으로 글만 가지고 생성 — images/generations는 JSON 요청) → 그걸 기준으로 `walk`(왼쪽 걷기), `jump`(왼쪽 점프 포즈, 제자리), `ladder`/`rope`(뒷모습 오르기), `prone`(엎드리기 2프레임)을 **모두 동시에(병렬)** 생성.
    - 방향: 정면(front)·걷기·점프 프롬프트 모두 "이미지 왼쪽을 바라보고 왼쪽으로 이동"을 강제(`[DIRECTION — ALWAYS LEFT]`). 게임은 왼쪽 기준 이미지를 코드로 뒤집어 오른쪽 이동을 표현하므로, 동작마다 방향이 섞이면 걷기/점프 방향이 어긋남.
    - 모든 캐릭터 프롬프트에 "소지품 금지" 섹션: 몸에 착용하는 것(액세서리·모자·안경 등)만 그리고, 손에 들거나 메는 물건(풍선·꽃다발·가방·캐리어·방망이·무기 등)은 사진에 있어도 빼게 함 — 소지품이 실루엣 밖으로 나오면 크기 계산(머리 폭·키)이 틀어져 캐릭터가 작아 보임.
-   - 동작 하나가 실패해도 나머지로 등록 가능. 프롬프트는 `prompt/create-character-{walk,jump,ladder-climbing,rope-climbing,prone}.txt`.
+   - 동작 하나가 실패해도 나머지로 등록 가능. 빠진 동작은 fill-motions 워크플로가 매시간 저장된 front.png(흰 배경 1024로 키움)를 참고해 다시 만듦. 프롬프트는 `prompt/create-character-{walk,jump,ladder-climbing,rope-climbing,prone}.txt`.
    - 프레임 수는 동작마다 `CONFIG.sprite.motionFrames`(prone만 2), 표시 높이 비율 `motionHeight`(prone 0.5 — 엎드리면 낮고 길어서).
    - 각 호출 최대 ~2분. 모델은 `OPENAI_IMAGE_MODEL`(쉼표 구분, 기본 gpt-image-2 → 1.5 → 1 순으로 시도, 없는 모델이면 다음으로), 품질 `OPENAI_IMAGE_QUALITY`(기본 medium).
    - 걷기 생성만 실패하면 정면만으로 등록 가능. 한 접속당 생성 3회 제한(`CONFIG.ai.maxGenerations`, 클라이언트 측).
