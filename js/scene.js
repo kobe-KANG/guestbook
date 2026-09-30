@@ -114,6 +114,7 @@ class MapScene extends Phaser.Scene {
   addGuest(info, { atSpawn = false } = {}) {
     if (this.guestIds.has(info.id)) return null;
     this.guestIds.add(info.id);
+    if (!info.spriteUrl) Object.assign(info, defaultSprite(info.id)); // 캐릭터 없이 등록한 하객 → 기본 캐릭터
     const spawn = atSpawn ? spawnPoint() : null;
     const floor = spawn ? CONFIG.floors[spawn.floor] : pickGuestFloor();
     const guest = new GuestCharacter(this, floor, info, { onSelect: this.onSelect, x: spawn?.x });

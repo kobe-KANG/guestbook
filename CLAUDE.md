@@ -44,6 +44,7 @@ img/guests/<uuid>/ 폴더 git rm
 .github/workflows/cleanup-images.yml  매일 03:00 KST 고아 이미지 정리 (수동 실행 시 기본 dry run)
 .github/workflows/fill-motions.yml  매시간 정면만 있고 동작 이미지가 빠진 하객을 찾아 마저 생성(scripts/fill-motions.mjs: 헤드리스 Chrome으로 배포 사이트를 열어 generateCharacter → prepareSpriteImages, 커밋 후 deploy.yml 실행)
 img/npc/<groom|bride>/   신랑신부 스프라이트. 하객과 같은 파일명(front, walk, jump, ladder, rope). 원본 png(각 1MB 안팎)는 보관용, 실제로는 webp(q0.9, 44~146KB) 사용
+img/default/default-<1~4>/  캐릭터 없이 등록한 하객용 기본 캐릭터(AI 생성, 임시 캐릭터 그림을 참고 이미지로 심플하게). scene.addGuest가 spriteUrl 없으면 `defaultSprite(id)`로 id 해시 고정 랜덤 배정(texId 공유)
 img/dummy/<dummy-n>/     더미 하객 스프라이트 (DUMMY_GUESTS용, 테스트 캐릭터 이미지 복사본 — img/guests/는 방명록 글을 지우면 정리 작업이 지우므로 따로 보관)
 img/guests/<uuid>/       하객 스프라이트 (API가 커밋). front.png + 동작 스트립 walk/jump/ladder/rope/prone.png(투명 배경, 4프레임, 높이 128, 모두 선택)
 api/_lib/github.js      GitHub API 공통(GitHub 클래스: 커밋, Discussion 작성)
@@ -98,7 +99,7 @@ prompt/                 캐릭터/걷기 스프라이트 생성용 프롬프트 
 - 이름표는 텍스트 + 뒤에 그린 반투명 검정 둥근 사각형(반지름 3, `drawTagBg`).
 - 누르는 영역은 스프라이트가 아니라 컨테이너에 발 기준 고정 사각형(`updateHitArea`, 정면 폭×1.3 + 네임태그). 스프라이트에 걸면 걷기·사다리 프레임 크기마다 영역이 달라져 잘 안 눌림.
 - 임시 캐릭터는 오른쪽을 바라보게 그림 → 왼쪽 이동 시 `setFlipX(true)`.
-- `look`이 없는 데이터는 `lookFromId(id)`로 id 해시 기반 고정 랜덤 색상.
+- 이미지 없는 하객은 기본 캐릭터(`defaultSprite`). 코드로 그린 임시 캐릭터는 로딩 전·신랑신부 폴백용. `look`이 없는 데이터는 `lookFromId(id)`로 id 해시 기반 고정 랜덤 색상.
 - 배경: `img/background/background.png`(원본 3MB, 세로형 공중섬 맵) → `background.webp`(495KB)로 변환해서 사용. 월드 크기 = 이미지 원본 크기라 `CONFIG.floors`는 **이미지 픽셀 좌표 그대로**.
   - 발판은 `path: [[x, y], ...]` 꺾은선(x 오름차순). 점 사이는 직선 보간이라 계단·출렁다리 같은 기울어진 길도 표현. 하객은 걸을 때마다 `floorY()`로 발 높이와 depth를 갱신.
   - 층 13개(열기구 바구니, 배 갑판~선착장, 웰컴 무대 좌우, 윗길/가운데길/아랫길, 정자, 하트 다리, 광장 등) + 무대(`stage`, `stage1`… 이름이 stage로 시작하는 발판 = `isStage()`, 웰컴 아치 아래. 하객·NPC도 올라갈 수 있음. 신랑·신부가 고정이 아니면 무대 조각들 안에서만 다님 — 이어진 발판·점프 대상·착지를 `canStandOn`으로 거름). 오른쪽 위 웨딩 비행선은 제외. 하객은 층 가로 길이에 비례한 확률로 배치(`pickGuestFloor`).
