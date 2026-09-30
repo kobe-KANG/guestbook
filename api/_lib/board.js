@@ -1,5 +1,5 @@
-// 이벤트 게임 공통 (가위바위보 api/rps.js, 도둑 잡기 api/chase.js): 서명 토큰, GitHub Gist 기록·랭킹, 랭킹 연락처(암호화), 개발자 관리
-// 게임마다 gist 안의 파일이 다르다 (rps.json, chase.json). 기록 { id, name, <score>: 점수, at(시작), end } — 점수가 클수록 높은 순위
+// 이벤트 게임 공통 (가위바위보 api/rps.js, 도둑 잡기 api/chase.js, 케이크 쌓기 api/cake.js): 서명 토큰, GitHub Gist 기록·랭킹, 랭킹 연락처(암호화), 개발자 관리
+// 게임마다 gist 안의 파일이 다르다 (rps.json, chase.json, cake.json). 기록 { id, name, <score>: 점수, at(시작), end } — 점수가 클수록 높은 순위
 //
 // POST { action: 'contact', number, id, password, contact } → 랭킹에 든 캐릭터의 연락처 저장 (쿠폰 연락용)
 // POST { action: 'admin', password(DEV_PASSWORD) } → 랭킹 + 연락처 · { action: 'reset', password } → 기록·연락처 초기화

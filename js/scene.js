@@ -33,8 +33,8 @@ class MapScene extends Phaser.Scene {
     else if (params.has('debug')) this.drawFloorGuides();
 
     this.onSelect = (character) => {
-      // 이벤트 NPC: 가위바위보 머신·도둑 잡기 (개발자 모드면 관리 칸 + "NPC 설정" 버튼)
-      const event = character instanceof NpcCharacter && { rps: Rps, chase: Chase }[character.npc.event];
+      // 이벤트 NPC: 가위바위보 머신·도둑 잡기·케이크 쌓기 (개발자 모드면 관리 칸 + "NPC 설정" 버튼)
+      const event = character instanceof NpcCharacter && { rps: Rps, chase: Chase, cake: Cake }[character.npc.event];
       if (event) return event.open(this.dev && (() => this.dev.openNpcSettings(character)));
       if (this.dev && character instanceof NpcCharacter) return this.dev.openNpcSettings(character); // 개발자 모드: NPC 설정 창
       // 앨범 NPC: 그 앨범 사진 (img/gallery/<album>/)

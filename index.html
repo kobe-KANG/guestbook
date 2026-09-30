@@ -234,6 +234,37 @@
     </div>
   </div>
 
+  <!-- 이벤트 NPC "웨딩 케이크 쌓기" (js/cake.js): 좌우로 움직이는 시트를 떨어뜨려 높이 쌓기 → 점수 랭킹 -->
+  <div id="cake-modal" class="modal" hidden>
+    <div class="modal-card rps-card" role="dialog" aria-modal="true" aria-labelledby="cake-title">
+      <div class="modal-header">
+        <span id="cake-title" class="modal-title">웨딩 케이크 쌓기</span>
+        <button type="button" class="modal-close" data-close aria-label="닫기">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="chase-intro cake-intro">
+          <img src="img/npc/cake-chef/front.webp" alt="웨딩 케이크 쌓기 파티시에" />
+          <p>좌우로 움직이는 <b>케이크 시트</b>를 화면을 눌러 떨어뜨려요.<br />어긋난 부분은 잘려 나가요. <b>가운데에 딱</b> 맞추면 점수 2배!<br /><b>3번 연속 완벽</b>이면 💒 <b>웨딩마치</b> — 잠깐 시트가 넓어져요.</p>
+        </div>
+        <canvas class="cake-canvas" hidden></canvas>
+        <p class="chase-result cake-result" hidden></p>
+        <form class="chase-start cake-start" novalidate>
+          <p class="rps-rule">높이 쌓을수록 점수가 올라가요.<br />랭킹 <b>TOP 3</b>에게는 <b>☕ 커피 쿠폰</b>을 드려요.</p>
+          <p class="rps-need cake-need" hidden>로비에서 내 캐릭터를 만들거나 골라야 도전할 수 있어요.</p>
+          <label class="field cake-pw">
+            <span>내 캐릭터 비밀번호 <small>(등록할 때 정한 것)</small></span>
+            <input name="password" type="password" autocomplete="current-password" maxlength="30" />
+          </label>
+          <p class="form-error cake-error" hidden></p>
+          <button type="submit" class="btn btn-primary cake-go">도전하기</button>
+        </form>
+
+        <!-- 랭킹·연락처·개발자 관리 (js/board.js가 채움) -->
+        <div class="event-board"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- 이벤트 NPC "도둑 잡기 경찰관" (js/chase.js): 신랑·신부·하객이 내 캐릭터를 쫓음 → 버틴 시간 랭킹 -->
   <div id="chase-modal" class="modal" hidden>
     <div class="modal-card rps-card" role="dialog" aria-modal="true" aria-labelledby="chase-title">
@@ -625,6 +656,7 @@
   <script src="js/board.js"></script>
   <script src="js/rps.js"></script>
   <script src="js/chase.js"></script>
+  <script src="js/cake.js"></script>
   <script src="js/view.js"></script>
   <script src="js/control.js"></script>
   <script src="js/scene.js"></script>

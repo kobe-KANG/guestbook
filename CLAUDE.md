@@ -12,7 +12,7 @@ QR로 접속 → 하객이 캐릭터 + 방명록을 등록 → 맵 위를 네임
 
 ## 기술 스택 / 구조
 - 순수 HTML/JS + Phaser 3.80.1 (jsDelivr CDN). 빌드 도구·번들러 없음, 스크립트는 전역 변수로 연결.
-- `index.html`에서 스크립트 로드 순서가 의존성 순서: `map-data → config → data → npcs → textures → character → api → ui → board → rps → chase → view → control → scene → dev → main`.
+- `index.html`에서 스크립트 로드 순서가 의존성 순서: `map-data → config → data → npcs → textures → character → api → ui → board → rps → chase → cake → view → control → scene → dev → main`.
 
 ```
 index.html              왼쪽 위 메뉴(모드 전환·캐릭터 수정·방명록 목록·웨딩 갤러리·로비로 돌아가기), 로비·모달 DOM + 스크립트 로드
@@ -27,6 +27,7 @@ js/api.js               resizePhoto(), generateCharacter()(AI 생성), prepareSp
 js/ui.js                메뉴, 방명록 팝업/목록, 웨딩 갤러리, 4단계 캐릭터 만들기 위저드(1 내 정보 → 2 캐릭터 → 3 한마디·방명록 → 4 비밀번호·등록), 토스트. UI.onGuestCreated 콜백으로 새 하객을 맵에 즉시 추가
 js/board.js             eventBoard(): 이벤트 게임 창 아래쪽 공통 칸(랭킹·내 기록·연락처 남기기·개발자 관리). `.event-board`를 채움, 모양은 `.rps-*` 클래스
 js/chase.js             Chase: 이벤트 NPC "도둑 잡기 경찰관" 화면 + 게임(추격 AI·타이머 HUD). main.js가 `Chase.attach`로 scene·내 캐릭터 연결
+js/cake.js             Cake: 이벤트 NPC "웨딩 케이크 쌓기" 화면 + 캔버스 게임(시트 왕복·잘라내기·PERFECT·웨딩마치)
 js/rps.js               Rps: 이벤트 NPC "가위바위보 머신" 화면(비밀번호 확인 → 가위·바위·보, 효과, 랭킹). ui.js 다음에 로드(`UI.setupModal`)
 js/view.js              MapView: 카메라 확대/축소(핀치·휠)와 드래그 이동, DPR 상수
 js/scene.js             MapScene: 임시 맵 그리기, 신랑신부/하객 스폰, addGuest(), 60초 주기 재조회
@@ -53,6 +54,7 @@ api/guestbook.js        Vercel 함수: POST 방명록 등록, GET 상태 확인.
 api/character.js        Vercel 함수: POST {type: front|walk|jump|ladder|rope|prone, image} → OpenAI 이미지 편집 API → {image: webp data URL}. 저장 안 함. NPC 추가용 npc-front|npc-idle|npc-walk (+desc, 투명 배경)
 api/_lib/board.js       이벤트 게임 공통 Board: 서명 토큰, gist 기록·랭킹(파일·점수 필드별), 연락처 암호화, contact/admin/reset/GET
 api/chase.js            Vercel 함수: 도둑 잡기. POST start|end, 버틴 시간은 서버 시각. 기록은 gist의 chase.json
+api/cake.js            Vercel 함수: 케이크 쌓기. POST start|end {score, floors}, 기록은 gist의 cake.json
 api/rps.js              Vercel 함수: 가위바위보 머신. POST start|play|stop, GET 랭킹·내 기록. 판정은 서버, 기록은 GitHub Gist(`RPS_GIST_ID`)의 rps.json
 api/map.js              Vercel 함수: POST {password, map: {floors, climbs, spawn, couple, npcs}} → 검증 후 js/map-data.js 커밋 (DEV_PASSWORD 필요)
 package.json            "type": "module" (api/ 함수 ESM용). 의존성 없음
@@ -212,6 +214,14 @@ prompt/                 캐릭터/걷기 스프라이트 생성용 프롬프트 
 - 발 위치 차이가 `catchX`·`catchY` 안이면 잡힘 → `end {token}` → 서버가 `지금 - 시작 - countdown`(상한 10분)으로 기록 → 결과 창(시간·순위·랭킹). 조종을 놓거나(로비·관람 모드) 탭을 숨기면 그 자리에서 끝.
 - 알려진 한계: 잡혔다는 건 브라우저가 알려 줌 → 늦게 보내면 시간이 늘어남(상한만 있음).
 - 랭킹·연락처·관리는 가위바위보와 같은 공통(`api/_lib/board.js`, `js/board.js`) — 게임마다 gist 파일이 따로(rps.json / chase.json), 연락처도 게임별.
+
+## 이벤트 NPC: 웨딩 케이크 쌓기 (`cake-chef`)
+- js/npcs.js `event: 'cake'` → 누르면 `Cake.open()`(개발자 모드면 관리 칸 + "NPC 설정"). 기본 자리 f6 x 560 고정(개발자 모드에서 끌어서 옮김), 키 110, 이미지는 gen-npc.mjs `cake-chef`(파티시에가 4단 웨딩 케이크를 받쳐 듦, 움직임 없음).
+- 도전: 내 캐릭터 비밀번호 → `POST /api/cake {action:'start'}` → 토큰 → 창 안 캔버스(논리 300x400)에서 게임. 터치·클릭·Space로 떨어뜨림.
+- 규칙(js/cake.js 상수): 첫 시트 폭 200, 층이 오를수록 빨라짐(110+층×7, 최대 330px/s). 어긋난 부분은 잘려 떨어지고, 가운데가 4px 안이면 PERFECT(아래 층에 딱 맞춤, 2점, 아니면 1점). PERFECT 3연속 → 웨딩마치: 다음 5층은 시트가 40px 넓게 나오고 잘리지 않음. 완전히 빗나가거나 폭 8px 미만이면 끝.
+- 끝 → `end {token, score, floors}` → 서버는 score가 floors~floors×2이고 floors×250ms ≤ 경과 시간인지만 확인. 창을 닫거나(× · ESC) 다른 탭으로 가면 그 점수로 기록.
+- 알려진 한계: 점수는 브라우저가 계산 → 조작 가능(막으려면 서버가 탭 시각으로 게임을 다시 돌려야 함).
+- 랭킹·연락처·관리는 공통(board). 1~3위 ☕ 쿠폰.
 
 ## 효과
 - 꽃잎(`scene.addPetals`, `CONFIG.petals`): 코드로 그린 분홍 꽃잎 2종을 Phaser 파티클로 맵 전체 위에서 천천히 떨어뜨림(좌우 흔들림, 회전). `advance`로 시작부터 화면 곳곳에 있음. depth 15000(캐릭터 위, 개발자 모드 선 아래).

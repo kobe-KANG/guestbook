@@ -137,6 +137,18 @@ Straight FRONT view at eye level (orthographic, like a classic 2D side-scrolling
 He stands perfectly upright on flat level ground; both feet on one straight horizontal line. Full body visible. No readable text or letters anywhere.`,
     motions: {},
   },
+  'cake-chef': {
+    // 이벤트 NPC "웨딩 케이크 쌓기": 파티시에가 높은 웨딩 케이크를 받쳐 듦. 작게 보여도 알아보게 단순·선명하게, 정면 시점. 가만히 서 있음
+    front: `A MapleStory-style event NPC for a wedding-party "stack the wedding cake" arcade game: a cheerful pastry chef (patissier).
+SIMPLE but HIGH-IMPACT design: bold clean silhouette, few big shapes, strong color contrast, instantly readable at small size.
+Chibi proportions, standing upright, big happy smile, rosy cheeks. Tall white puffy chef hat, white double-breasted chef jacket with a pink neckerchief,
+pastel pink apron, brown shoes. Proudly holding up with both hands, above chest height, a TALL wedding cake of 4 stacked tiers in pastel colors
+(cream, pink, mint, lavender from bottom to top), each tier slightly narrower, white frosting drips and tiny pearl dots, a small red heart topper on the very top.
+The cake is clearly the main eye-catching element but stays within the character's width (not wider than the shoulders plus a little).
+Straight FRONT view at eye level (orthographic, like a classic 2D side-scrolling game sprite): NO top-down, NO three-quarter, NO isometric angle, NO perspective.
+Stands perfectly upright on flat level ground; both feet on one straight horizontal line. Full body visible. No readable text or letters anywhere.`,
+    motions: {},
+  },
 };
 for (const [id, cat] of Object.entries(NPCS)) {
   if (!cat.look) continue;
