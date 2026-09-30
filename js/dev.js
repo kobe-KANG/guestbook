@@ -101,7 +101,7 @@ class DevMode {
     bar.querySelector('[data-act="undo"]').addEventListener('click', () => this.undo());
     bar.querySelector('[data-act="save"]').addEventListener('click', () => this.save());
     bar.querySelector('[data-act="hide"]').addEventListener('change', (e) => {
-      for (const g of this.scene.guests) g.setVisible(!e.target.checked);
+      this.scene.hideGuests = e.target.checked; // 표시는 scene.update가 화면 안/밖과 함께 정함
     });
     bar.querySelector('[data-act="npc-add"]').addEventListener('click', () => this.openNpcCreator());
     bar.querySelector('[data-act="fixed"]').addEventListener('change', (e) => {

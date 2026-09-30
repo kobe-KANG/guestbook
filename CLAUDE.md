@@ -239,6 +239,7 @@ prompt/                 캐릭터/걷기 스프라이트 생성용 프롬프트 
 - 카메라 줌/중심은 `MapView`가 관리. 최소 = 맵 전체가 보이는 줌(플레이 모드·조종 중엔 맵 밖 배경이 안 보이게 화면을 꽉 채우는 줌, `minZoom` getter), 최대 = 맵 1px당 CSS 2.5px(`CONFIG.view.maxZoom`).
   - 기본 보기: 세로 화면은 맵 높이를 꽉 채우고 제단(`CONFIG.view.focus`) 중심, 가로 화면은 맵 전체.
   - 맵이 화면보다 작은 방향은 가운데 정렬 (Phaser 카메라 bounds 대신 직접 clamp).
+- 화면 밖 캐릭터(카메라 worldView + 여유 120px)는 `scene.update`가 매 프레임 setVisible(false) → 그리지 않고 말풍선·효과(say/floatText/photoFlash 등, NPC 파티클)도 만들지 않음. 움직임은 계속. 개발자 모드 "하객 숨기기"는 `scene.hideGuests`.
 - 드래그가 끝나고 손을 뗀 위치의 캐릭터는 클릭으로 처리하지 않음(`view.dragMoved`).
 - Phaser `input.activePointers`는 마우스 포인터 포함 개수라 **3**이어야 두 손가락 핀치가 된다.
 - 확대해도 선명하도록 텍스트는 `TEXT_RESOLUTION`(DPR×2), 이미지 스프라이트는 표시 크기의 2배(`CONFIG.sprite.textureScale`)로 만들어 축소 표시.

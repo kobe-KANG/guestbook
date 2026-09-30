@@ -215,6 +215,7 @@ class Character extends Phaser.GameObjects.Container {
 
   /** 머리 위 흰 말풍선 안에서 점 3개가 차례로 통통 (duration ms 뒤 사라짐) */
   typingDots(duration) {
+    if (!this.visible) return; // 화면 밖 (scene.update)
     this.hideBubble();
     const bg = this.scene.add.graphics().fillStyle(0xffffff, 0.95).fillRoundedRect(-17, -9, 34, 18, 9);
     const dots = [-8, 0, 8].map((x) => this.scene.add.circle(x, 0, 2.6, 0xb08a82));
@@ -229,6 +230,7 @@ class Character extends Phaser.GameObjects.Container {
 
   /** 글자·이모지를 띄워 위로 떠오르며 사라지게 (성향 효과 공용). 좌표는 발 기준 */
   floatText(text, { x = 0, y = this.headY() - 4, size = 16, color = '#ffffff', stroke = null, rise = 26, dx = 0, duration = 1100, delay = 0 } = {}) {
+    if (!this.visible) return; // 화면 밖 (scene.update)
     const style = { fontFamily: CONFIG.fontFamily, fontSize: `${size}px`, fontStyle: 'bold', color, resolution: TEXT_RESOLUTION };
     if (stroke) Object.assign(style, { stroke, strokeThickness: 3 });
     const t = this.scene.add.text(x, y, text, style).setOrigin(0.5, 1).setAlpha(0);
@@ -251,6 +253,7 @@ class Character extends Phaser.GameObjects.Container {
   }
 
   say(message, duration = CONFIG.bubble.duration) {
+    if (!this.visible) return; // 화면 밖 (scene.update)
     if (!message) return;
     this.hideBubble();
 
@@ -501,6 +504,7 @@ class GuestCharacter extends Character {
 
   /** 먹보: 머리 위에 음식이 톡 나타났다가 입으로 쏙 → 냠! */
   eatSnack() {
+    if (!this.visible) return; // 화면 밖 (scene.update)
     const food = Phaser.Utils.Array.GetRandom(['🍰', '🍗', '🍙', '🍩', '🍓', '🍕', '🍦', '🍪']);
     const y = this.headY() - 4;
     const t = this.scene.add.text(0, y, food, { fontSize: '22px', resolution: TEXT_RESOLUTION }).setOrigin(0.5, 1).setScale(0);
@@ -541,6 +545,7 @@ class GuestCharacter extends Character {
   }
 
   snotBubble(x, y) {
+    if (!this.visible) return; // 화면 밖 (scene.update)
     const b = this.scene.add.circle(x + this.dir * 6, y, 7, 0xbfe6ff, 0.75).setStrokeStyle(1.5, 0xffffff, 0.9).setScale(0.2);
     this.add(b);
     this.scene.tweens.chain({
@@ -555,6 +560,7 @@ class GuestCharacter extends Character {
 
   /** 탐험가: 점프 착지 때 발밑에 흙먼지 */
   landDust() {
+    if (!this.visible) return; // 화면 밖 (scene.update)
     for (let i = 0; i < 6; i++) {
       const side = i % 2 ? 1 : -1;
       const d = this.scene.add.circle(side * 4, -2, Phaser.Math.FloatBetween(3, 5), 0xb0915f).setStrokeStyle(1, 0xffffff, 0.6);
@@ -592,6 +598,7 @@ class GuestCharacter extends Character {
 
   /** 사진광: 머리 옆에서 카메라 플래시가 번쩍 + 주변에 반짝이 + 찰칵 */
   photoFlash() {
+    if (!this.visible) return; // 화면 밖 (scene.update)
     const flash = this.scene.add.circle(this.dir * 10, this.headY() * 0.6, 7, 0xffffff, 0.95);
     this.add(flash);
     this.scene.tweens.add({ targets: flash, scale: 3.2, alpha: 0, duration: 380, onComplete: () => flash.destroy() });

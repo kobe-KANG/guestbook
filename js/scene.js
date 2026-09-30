@@ -206,6 +206,13 @@ class MapScene extends Phaser.Scene {
     for (const guest of this.guests) guest.tick(delta);
     for (const c of this.couple) c.tick(delta); // 신랑/신부는 개발자 모드에서 조종할 때만 움직임
     for (const n of this.npcs) n.tick(delta);
+
+    // 화면 밖 캐릭터는 그리지 않고 말풍선·효과도 만들지 않음 (하객이 많아도 덜 버벅이게). 움직임은 계속
+    const v = this.cameras.main.worldView;
+    const m = 120; // 가장자리 여유: 이름표·말풍선이 걸쳐 보이는 캐릭터도 그리게
+    const onScreen = (c) => c.x > v.x - m && c.x < v.right + m && c.y > v.y - m / 2 && c.y - 150 < v.bottom;
+    for (const g of this.guests) g.setVisible(!this.hideGuests && onScreen(g));
+    for (const c of [...this.couple, ...this.npcs]) c.setVisible(onScreen(c));
   }
 
   // ---------- 임시 맵 그리기 (맵 이미지 준비되면 CONFIG.mapImage로 대체) ----------
