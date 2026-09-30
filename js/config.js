@@ -24,6 +24,9 @@ const CONFIG = {
 
   // 하객 움직임
   motion: {
+    // 하객이 많으면 다 같이 움직여 버벅여서 서 있는 시간을 늘림 (성향 값에 곱함)
+    walkScale: 0.5, // 새 상태를 고를 때 걸을 확률 배율
+    idleScale: 2.5, // 서 있는 시간 배율
     jumpChance: 0.12, // 걷는 중 1초당 점프할 확률
     jumpHeight: 26, // px
     jumpDuration: 620, // ms

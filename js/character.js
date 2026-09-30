@@ -459,8 +459,11 @@ class GuestCharacter extends Character {
 
   pickState() {
     const p = this.persona;
-    this.state = Math.random() < (p?.walk ?? 0.65) ? 'walk' : 'idle';
-    this.stateTimer = Phaser.Math.Between(...(p?.[`${this.state}Time`] ?? [1200, 4000]));
+    const { walkScale, idleScale } = CONFIG.motion;
+    this.state = Math.random() < (p?.walk ?? 0.65) * walkScale ? 'walk' : 'idle';
+    const [min, max] = p?.[`${this.state}Time`] ?? [1200, 4000];
+    const scale = this.state === 'idle' ? idleScale : 1;
+    this.stateTimer = Phaser.Math.Between(min * scale, max * scale);
     if (this.state === 'walk' && Math.random() < 0.5) this.dir = -this.dir;
     // 성향별 서 있을 때 특별 동작
     this.idlePose = this.state === 'idle' ? p?.idle ?? null : null;

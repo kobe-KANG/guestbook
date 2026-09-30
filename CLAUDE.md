@@ -225,7 +225,7 @@ prompt/                 캐릭터/걷기 스프라이트 생성용 프롬프트 
 - 메뉴·팝업이 떠 있는 동안 맵 입력 off(`UI.onModalChange`). 팝업이 겹치면 ESC는 맨 위 하나만 닫음.
 
 ## 하객 움직임 (`GuestCharacter`, `CONFIG.motion`, `CONFIG.climbs`)
-- 상태: idle / walk / climb. 걷는 중 1초당 `jumpChance` 확률로 점프 (포물선 높이 `jumpHeight`, 이동은 계속). 점프 스트립은 포즈만 있고 높이는 코드가 준다.
+- 상태: idle / walk / climb. 하객이 많아 버벅여서 `CONFIG.motion.walkScale`(걸을 확률 ×0.5)·`idleScale`(서 있는 시간 ×2.5)로 가만히 있는 시간을 늘림. 걷는 중 1초당 `jumpChance` 확률로 점프 (포물선 높이 `jumpHeight`, 이동은 계속). 점프 스트립은 포즈만 있고 높이는 코드가 준다.
 - 이어진 발판(`floorContinuation`): 끝점끼리 가로 6px·세로 10px 이내면 한 길로 보고 끊김 없이 걸어서 넘어감(끝 여유 margin 없음). 개발자 모드에서 직선 여러 개로 그린 길용.
 - 발판 끝 점프(`CONFIG.motion.gapJump`): 발판 끝에 닿으면 가로 틈 ≤ maxGap(60)이고 착지 높이 차가 위 maxUp(50)/아래 maxDown(100) 이내인 다른 발판으로 chance(50%) 확률로 포물선 점프해 건너감(`gapJumpTargets`, state `leap`). 겹친 아래층으로 뛰어내리기도 포함. 연결은 좌표로 자동 계산 → 개발자 모드에 보라 곡선으로 표시.
 - 매달린 사다리/로프(`climbEnds()`로 위/아래 끝 계산, bottom.name = null): AI는 위 발판에서만 타고 내려가 아래 끝에서 아래 발판이 가까우면(maxDown×1.5 이내) 뛰어내리고 아니면 다시 올라감. 조종 시 아래 끝에서 ↓를 계속 누르면 손 놓고 떨어짐(놓은 뒤 0.4초는 다시 안 잡힘), 점프로 끝에 닿으면 ↑로 잡을 수 있음.
