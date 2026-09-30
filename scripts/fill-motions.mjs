@@ -6,7 +6,7 @@
 //   puppeteer-core 필요 (npm i --no-save puppeteer-core), CHROME_PATH(기본 /usr/bin/google-chrome)
 
 import { existsSync } from 'node:fs';
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, readdir, readFile, writeFile } from 'node:fs/promises';
 import { fetchGuestbookDiscussions, parseBody } from './lib/discussions.mjs';
 
 const MOTIONS = ['walk', 'jump', 'ladder', 'rope', 'prone']; // CONFIG.sprite.motions와 같게
@@ -34,6 +34,7 @@ const browser = await puppeteer.launch({
   args: ['--no-sandbox'],
 });
 let failed = 0;
+let made = 0;
 try {
   const page = await browser.newPage();
   page.setDefaultTimeout(0); // 생성 한 번에 최대 ~2분
@@ -74,6 +75,7 @@ try {
     );
     for (const [m, url] of Object.entries(result.images)) {
       await writeFile(`${dir}/${m}.png`, Buffer.from(url.split(',')[1], 'base64'));
+      made++;
     }
     for (const [m, err] of Object.entries(result.errors)) console.log(`실패  ${id} ${m}: ${err}`);
     failed += Object.keys(result.errors).length;
@@ -83,3 +85,8 @@ try {
   await browser.close();
 }
 if (failed) console.log(`${failed}개 실패 → 다음 실행 때 다시 시도`);
+// 이번에 못 다룬 하객이 남았으면 워크플로가 이어서 다시 실행 (하나도 못 만들었으면 멈춤 — 계속 실패하는 하객으로 무한 반복 방지)
+const more = targets.length > MAX_GUESTS && made > 0;
+if (more) console.log(`남은 하객 ${targets.length - MAX_GUESTS}명 → 이어서 다시 실행`);
+if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `more=${more}
+`);

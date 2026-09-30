@@ -43,7 +43,7 @@ scripts/cleanup-guest-images.mjs  방명록에서 참조하지 않는 img/galler
 img/guests/<uuid>/ 폴더 git rm
 .github/workflows/deploy.yml  Pages 배포 워크플로
 .github/workflows/cleanup-images.yml  매일 03:00 KST 고아 이미지 정리 (수동 실행 시 기본 dry run)
-.github/workflows/fill-motions.yml  방명록 글 작성·수정 때(+ 보조로 30분마다 cron, GitHub 스케줄은 자주 밀리거나 빠짐) 정면만 있고 동작 이미지가 빠진 하객을 찾아 마저 생성(scripts/fill-motions.mjs: 헤드리스 Chrome으로 배포 사이트를 열어 generateCharacter → prepareSpriteImages, 커밋 후 deploy.yml 실행)
+.github/workflows/fill-motions.yml  방명록 글 작성·수정 때(+ 보조로 30분마다 cron, GitHub 스케줄은 자주 밀리거나 빠짐) 정면만 있고 동작 이미지가 빠진 하객을 찾아 마저 생성(scripts/fill-motions.mjs: 헤드리스 Chrome으로 배포 사이트를 열어 generateCharacter → prepareSpriteImages, 커밋 후 deploy.yml 실행. 한 번에 5명, 남은 하객이 있고 이번에 하나라도 만들었으면 스스로 다시 실행)
 img/npc/<groom|bride>/   신랑신부 스프라이트. 하객과 같은 파일명(front, walk, jump, ladder, rope). 원본 png(각 1MB 안팎)는 보관용, 실제로는 webp(q0.9, 44~146KB) 사용
 img/default/default-<1~4>/  캐릭터 없이 등록한 하객용 기본 캐릭터(AI 생성, 임시 캐릭터 그림을 참고 이미지로 심플하게). scene.addGuest가 spriteUrl 없으면 `defaultSprite(id)`로 id 해시 고정 랜덤 배정(texId 공유)
 img/dummy/<dummy-n>/     더미 하객 스프라이트 (DUMMY_GUESTS용, 테스트 캐릭터 이미지 복사본 — img/guests/는 방명록 글을 지우면 정리 작업이 지우므로 따로 보관)

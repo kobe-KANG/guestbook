@@ -35,6 +35,7 @@ jobs:
           node-version: 24
 
       - name: Generate missing motions
+        id: gen
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GUESTBOOK_CATEGORY: 방명록
@@ -64,3 +65,10 @@ jobs:
             sleep 5
           done
           echo "push 실패" && exit 1
+
+      # 남은 하객이 있으면 이어서 (concurrency로 이번 실행이 끝난 뒤 시작)
+      - name: Run again for remaining guests
+        if: steps.gen.outputs.more == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run fill-motions.yml --ref main -f max_guests="${{ inputs.max_guests || '5' }}"
