@@ -480,11 +480,13 @@ class GuestCharacter extends Character {
     if (this.state === 'walk' && p?.dust && Math.random() < 0.2) {
       this.floatText('!', { size: 20, color: '#ffb300', stroke: '#ffffff', rise: 10, duration: 800 });
     }
-    if (this.idlePose === 'dance') {
-      // 댄서: 통통 점프(hop) 또는 셔플 스텝(shuffle: 한 방향으로 직진하면서 걷기 모션만 좌우로 번갈아)
-      this.danceStyle = Math.random() < 0.5 ? 'hop' : 'shuffle';
-      Object.assign(this, { danceDir: this.dir, danceFace: this.dir, danceFlip: 0 });
-    }
+    if (this.idlePose === 'dance') this.setDanceStyle(Math.random() < 0.5 ? 'hop' : 'shuffle');
+    this.updatePose();
+  }
+
+  /** 댄서: 통통 점프(hop) 또는 셔플 스텝(shuffle: 한 방향으로 직진하면서 걷기 모션만 좌우로 번갈아). 1.2~2.2초 뒤 다른 쪽으로 */
+  setDanceStyle(style) {
+    Object.assign(this, { danceStyle: style, danceSwitch: Phaser.Math.Between(1200, 2200), danceDir: this.dir, danceFace: this.dir, danceFlip: 0 });
     this.updatePose();
   }
 
@@ -1123,11 +1125,15 @@ class GuestCharacter extends Character {
         }
         if (this.canJump !== false && Math.random() < (m.jumpChance * (this.persona?.jump ?? 1) * delta) / 1000) this.startJump();
       }
-    } else if (this.idlePose === 'dance' && this.danceStyle === 'shuffle') {
-      this.tickShuffle(delta);
-    } else if (this.idlePose === 'dance' && !this.jump && this.canJump !== false) {
-      this.setDir(-this.dir); // 댄서: 제자리에서 방향을 바꾸며 통통
-      this.startJump();
+    } else if (this.idlePose === 'dance') {
+      // 춤추는 동안 통통 점프와 셔플 스텝을 번갈아 (점프 중이면 착지 후 바꿈)
+      this.danceSwitch -= delta;
+      if (this.danceSwitch <= 0 && !this.jump) this.setDanceStyle(this.danceStyle === 'hop' ? 'shuffle' : 'hop');
+      if (this.danceStyle === 'shuffle') this.tickShuffle(delta);
+      else if (!this.jump && this.canJump !== false) {
+        this.setDir(-this.dir); // 제자리에서 방향을 바꾸며 통통
+        this.startJump();
+      }
     }
     if (this.idlePose === 'dance') this.tickNotes(delta);
 
