@@ -331,7 +331,7 @@
           </div>
           <button type="button" class="btn btn-secondary generate-btn">캐릭터 생성</button>
           <p class="gen-status" hidden><span class="spinner" aria-hidden="true"></span><span class="gen-text"></span></p>
-          <small class="note">1~3분 걸려요. 기다리는 동안 다음 단계를 써도 돼요.<br />사진은 캐릭터를 만드는 데만 쓰고 저장하지 않아요.</small>
+          <small class="note">1~3분 걸려요.<br />사진은 캐릭터를 만드는 데만 쓰고 저장하지 않아요.</small>
         </section>
 
         <!-- 3) 한줄 멘트 · 방명록 -->
@@ -378,6 +378,24 @@
         <button type="submit" class="btn submit-btn" hidden>방명록 등록하기</button>
       </div>
     </form>
+  </div>
+
+  <!-- 캐릭터 만들기 2단계에서 AI 생성 없이 "다음"을 누르면 확인 -->
+  <div id="skip-ai-modal" class="modal confirm-modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="skip-ai-title">
+      <div class="modal-header">
+        <span id="skip-ai-title" class="modal-title">캐릭터 생성 없이 진행하시겠어요?</span>
+        <button class="modal-close" data-close aria-label="닫기">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="confirm-text">사진 한 장(없어도 돼요)으로 나만의 캐릭터를 만들 수 있어요.<br />건너뛰면 기본 캐릭터 중 하나로 등록돼요.</p>
+        <p class="note">1~3분 걸려요.<br />사진은 캐릭터를 만드는 데만 쓰고 저장하지 않아요.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost skip-ai-go">생성 없이 진행</button>
+        <button type="button" class="btn btn-primary skip-ai-make">캐릭터 생성하기</button>
+      </div>
+    </div>
   </div>
 
   <!-- 캐릭터 선택 (로비의 "내 캐릭터로 접속"): 항상 전체 화면 -->

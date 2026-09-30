@@ -710,9 +710,21 @@ const UI = (() => {
     };
   }
 
+  // 2단계에서 AI 캐릭터를 안 만들고 넘어가면 한 번 확인 (건너뛰면 기본 캐릭터)
+  const skipAiModal = setupModal(document.getElementById('skip-ai-modal'));
+  document.querySelector('#skip-ai-modal .skip-ai-go').addEventListener('click', () => {
+    skipAiModal.close();
+    showStep(3);
+  });
+  document.querySelector('#skip-ai-modal .skip-ai-make').addEventListener('click', () => {
+    skipAiModal.close();
+    generateBtn.click();
+  });
+
   function goNext() {
     const err = checkStep(step);
     if (err) return showError(err);
+    if (step === 2 && !aiSources) return skipAiModal.open();
     if (step < LAST_STEP) showStep(step + 1);
   }
 

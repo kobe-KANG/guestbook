@@ -387,6 +387,11 @@ html, body {
 .gen-status { justify-content: center; }
 .step .note { font-weight: normal; color: var(--ink-soft); font-size: 12px; text-align: center; line-height: 1.5; }
 
+/* 확인 팝업 (위저드 위에 뜸 — DOM에서 뒤에 있어 위로 올라옴) */
+.confirm-modal { background: rgba(70, 34, 29, .35); }
+.confirm-modal .confirm-text { margin: 0 0 10px; text-align: center; line-height: 1.6; color: var(--ink); }
+.confirm-modal .note { margin: 0; color: var(--ink-soft); font-size: 12px; text-align: center; line-height: 1.5; }
+
 .modal-footer { display: flex; justify-content: center; gap: 10px; }
 .btn-ghost {
   color: var(--coral-deep);
