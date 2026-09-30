@@ -953,14 +953,21 @@ const UI = (() => {
     },
   };
 
-  /** 이 브라우저에서 만든 캐릭터 id 목록 (캐릭터 선택 화면 "내 캐릭터" 칸). 예전에 저장된 myGuestId도 내 캐릭터로 */
+  // 목록(myGuestIds)이 생기기 전 옛 방식(myGuestId 하나)으로 만든 캐릭터는 처음 한 번 목록으로 옮긴다.
+  // 목록이 없을 때마다 myGuestId를 내 캐릭터로 치면 "다른 캐릭터로 플레이"(myGuestId만 바뀜)로 고른 캐릭터까지 섞여서, 열자마자 한 번만.
+  try {
+    if (localStorage.getItem('myGuestIds') === null) {
+      const legacy = localStorage.getItem('myGuestId');
+      localStorage.setItem('myGuestIds', JSON.stringify(legacy ? [legacy] : []));
+    }
+  } catch {}
+
+  /** 이 브라우저에서 만든 캐릭터 id 목록 (캐릭터 선택 화면 "내 캐릭터" 칸) */
   const myCreated = {
     get: () => {
       try {
-        const ids = JSON.parse(localStorage.getItem('myGuestIds') ?? 'null');
-        if (Array.isArray(ids)) return ids;
-        const legacy = localStorage.getItem('myGuestId');
-        return legacy ? [legacy] : [];
+        const ids = JSON.parse(localStorage.getItem('myGuestIds') ?? '[]');
+        return Array.isArray(ids) ? ids : [];
       } catch {
         return [];
       }
