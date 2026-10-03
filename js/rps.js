@@ -225,8 +225,7 @@ const Rps = (() => {
       stage.classList.add('shake');
       setTimeout(() => stage.classList.remove('shake'), 500);
     }
-    const rank = r.rank && r.rank <= 3 ? ` · ${r.rank}위! ☕ 쿠폰 순위` : r.rank ? ` · ${r.rank}위` : '';
-    const msg = wasTest ? `테스트 ${r.streak}연승 (기록 안 됨)` : `${r.streak}연승으로 기록했어요${rank}`;
+    const msg = wasTest ? `테스트 ${r.streak}연승 (기록 안 됨)` : r.closed ? `${r.streak}연승${rankSuffix(r)}` : `${r.streak}연승으로 기록했어요${rankSuffix(r)}`;
     setTimeout(() => UI.showToast(msg, 3000), lost ? 900 : 0);
     board.render({ ranking: r.ranking, hasContact: r.hasContact });
     board.load(); // 내 도전 기록까지

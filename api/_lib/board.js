@@ -3,7 +3,8 @@
 //
 // POST { action: 'contact', number, id, password, contact } → 랭킹에 든 캐릭터의 연락처 저장 (쿠폰 연락용)
 // POST { action: 'admin', password(DEV_PASSWORD) } → 랭킹 + 연락처 · { action: 'reset', password } → 기록·연락처 초기화
-// GET  [?id=<하객 id>] → { ranking: 캐릭터별 최고 점수 TOP 10, mine: 그 캐릭터의 최근 도전, hasContact }
+// POST { action: 'deadline', password, deadline: ISO 시각 | null } → 랭킹 등록 마감 시각 (세 게임 공통, gist의 event.json). 마감 뒤 끝난 도전은 기록 안 함 (closed: true)
+// GET  [?id=<하객 id>] → { ranking: 캐릭터별 최고 점수 TOP 10, mine: 그 캐릭터의 최근 도전, hasContact, deadline }
 //
 // 환경변수(Vercel): GIST_TOKEN(gist 쓰기 권한 토큰, 없으면 GITHUB_TOKEN). 선택: RPS_GIST_ID(기본은 아래 gist)
 
@@ -16,6 +17,7 @@ import { findGuest, secret } from '../guestbook.js';
 const GIST_ID = (process.env.RPS_GIST_ID || '54d5f2cf56f9e6eb09864d4c3e4ae684').match(/[0-9a-f]{20,}/i)?.[0];
 const RANKING_SIZE = 10;
 const CONTACT_MAX = 50;
+const EVENT_FILE = 'event.json'; // 세 게임 공통 설정 { deadline }
 
 export class Board {
   /** file: gist 파일 이름, score: 기록의 점수 필드, tokenKey: 토큰 서명 구분(게임끼리 토큰을 못 섞게), ttl: 토큰 유효 시간 */
@@ -64,15 +66,17 @@ export class Board {
     }
   }
 
-  /** { records: [{ id, name, <score>, at, end }], burned: { <토큰 nonce>: 만료 시각 }, contacts: { <하객 id>: { c: 암호문, at } } } */
+  /** { records: [{ id, name, <score>, at, end }], burned: { <토큰 nonce>: 만료 시각 }, contacts: { <하객 id>: { c: 암호문, at } }, deadline: 공통 마감 ISO | null } */
   async read(github) {
     const g = await this.request(github, 'GET');
     const text = g.files?.[this.file]?.content;
     const data = text ? JSON.parse(text) : {};
-    return { records: data.records ?? [], burned: data.burned ?? {}, contacts: data.contacts ?? {} };
+    const event = g.files?.[EVENT_FILE]?.content;
+    const deadline = (event && JSON.parse(event).deadline) || null;
+    return { records: data.records ?? [], burned: data.burned ?? {}, contacts: data.contacts ?? {}, deadline };
   }
 
-  write(github, data) {
+  write(github, { deadline, ...data }) { // deadline은 event.json에 따로
     return this.request(github, 'PATCH', { files: { [this.file]: { content: JSON.stringify(data, null, 1) } } });
   }
 
@@ -91,16 +95,20 @@ export class Board {
       const now = Date.now();
       data.burned = Object.fromEntries(Object.entries(data.burned).filter(([, e]) => e > now)); // 만료된 토큰은 어차피 못 씀
       data.burned[run.n] = run.e;
+      if (data.deadline && now > Date.parse(data.deadline)) {
+        await this.write(github, data); // 마감 뒤: 토큰만 끝냄, 기록 안 함
+        return { ...this.result(run.id, data), closed: true };
+      }
       data.records.push({ id: run.id, name: run.name, [this.score]: score, at: new Date(run.t).toISOString(), end: new Date(now).toISOString() });
       await this.write(github, data);
     }
     throw new HttpError(503, '기록이 몰려서 저장하지 못했어요. 잠시 후 다시 시도해 주세요.');
   }
 
-  result(id, { records, contacts }) {
+  result(id, { records, contacts, deadline }) {
     const top = this.ranking(records);
     const rank = top.findIndex((r) => r.id === id) + 1;
-    return { ended: true, rank: rank || null, ranking: top, hasContact: Boolean(contacts[id]) };
+    return { ended: true, rank: rank || null, ranking: top, hasContact: Boolean(contacts[id]), deadline };
   }
 
   /** 캐릭터별 최고 점수 (같으면 먼저 달성한 사람), 0점은 제외 */
@@ -120,21 +128,28 @@ export class Board {
     const cors = corsHeaders(request);
     try {
       const id = new URL(request.url).searchParams.get('id');
-      const { records, contacts } = await this.read(this.gist());
+      const { records, contacts, deadline } = await this.read(this.gist());
       const mine = id ? records.filter((r) => r.id === id).slice(-10).reverse() : [];
-      return json({ ranking: this.ranking(records), mine, total: records.length, hasContact: Boolean(id && contacts[id]) }, 200, cors);
+      return json({ ranking: this.ranking(records), mine, total: records.length, hasContact: Boolean(id && contacts[id]), deadline }, 200, cors);
     } catch (err) {
       console.error(err);
       return json({ error: err instanceof HttpError ? err.message : '기록을 불러오지 못했어요.' }, err.status || 500, cors);
     }
   }
 
-  /** contact·admin·reset이면 처리해서 { status, body }, 아니면 null (게임별 요청) */
+  /** contact·admin·reset·deadline이면 처리해서 { status, body }, 아니면 null (게임별 요청) */
   async common(body) {
     if (body.action === 'contact') return { status: 200, body: await this.saveContact(body) };
-    if (body.action !== 'admin' && body.action !== 'reset') return null;
+    if (!['admin', 'reset', 'deadline'].includes(body.action)) return null;
     checkDevPassword(body.password);
     const github = this.gist();
+    if (body.action === 'deadline') {
+      const deadline = body.deadline ? new Date(body.deadline) : null;
+      if (deadline && isNaN(deadline)) throw new HttpError(400, '마감 시각이 올바르지 않아요.');
+      const value = deadline?.toISOString() ?? null;
+      await this.request(github, 'PATCH', { files: { [EVENT_FILE]: { content: JSON.stringify({ deadline: value }) } } });
+      return { status: 200, body: { deadline: value } };
+    }
     const { records, burned, contacts } = await this.read(github);
     if (body.action === 'reset') {
       await this.write(github, { records: [], burned, contacts: {} }); // 끝난 토큰 표시는 남김 (초기화로 끝난 토큰이 되살아나지 않게)

@@ -216,6 +216,7 @@ prompt/                 캐릭터/걷기 스프라이트 생성용 프롬프트 
 - 알려진 한계: 잡혔다는 건 브라우저가 알려 줌 → 늦게 보내면 시간이 늘어남(상한만 있음).
 - 개발자 모드 관리 칸 "🧪 테스트 플레이 (기록 안 됨)"(board `test` 옵션): 비밀번호·내 캐릭터 없이 서버 대신 브라우저에서 돌림 — 가위바위보는 브라우저가 판정(`testApi`), 케이크는 기록만 생략, 도둑 잡기는 내 캐릭터 → 조종 중인 캐릭터 → 아무 하객 순으로 도망치고 시간은 브라우저가 잼.
 - 랭킹·연락처·관리는 가위바위보와 같은 공통(`api/_lib/board.js`, `js/board.js`) — 게임마다 gist 파일이 따로(rps.json / chase.json), 연락처도 게임별.
+- 랭킹 등록 마감(세 게임 공통): 개발자 모드 관리 칸에서 시각 입력 → `POST {action:'deadline', deadline}` → gist `event.json`. 마감 뒤 끝난 도전은 토큰만 끝내고 기록 안 함(`closed: true`, `rankSuffix`). GET에 `deadline` → 창 위 첫 `.rps-rule` 아래 안내 + 남은 시간 카운트다운(`.rps-deadline`).
 
 ## 이벤트 NPC: 웨딩 케이크 쌓기 (`cake-chef`)
 - js/npcs.js `event: 'cake'` → 누르면 `Cake.open()`(개발자 모드면 관리 칸 + "NPC 설정"). 기본 자리 f6 x 560 고정(개발자 모드에서 끌어서 옮김), 키 110, 이미지는 gen-npc.mjs `cake-chef`(파티시에가 4단 웨딩 케이크를 받쳐 듦, 움직임 없음).

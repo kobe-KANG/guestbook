@@ -65,7 +65,7 @@ const Chase = (() => {
     form.elements.password.value = password;
     resultEl.hidden = !result;
     if (result) {
-      const rank = result.test ? ' (테스트 — 기록 안 됨)' : result.rank && result.rank <= 3 ? ` · ${result.rank}위! ☕ 쿠폰 순위` : result.rank ? ` · ${result.rank}위` : '';
+      const rank = result.test ? ' (테스트 — 기록 안 됨)' : rankSuffix(result);
       resultEl.textContent = `⏱ ${fmtTime(result.ms)} 버텼어요${rank}`;
       board.render({ ranking: result.ranking, hasContact: result.hasContact });
     }

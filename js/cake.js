@@ -228,9 +228,9 @@ const Cake = (() => {
       UI.showToast(err.message, 3000);
     }
     g = null;
-    const rank = run.test ? ' (테스트 — 기록 안 됨)' : r?.rank && r.rank <= 3 ? ` · ${r.rank}위! ☕ 쿠폰 순위` : r?.rank ? ` · ${r.rank}위` : '';
+    const rank = run.test ? ' (테스트 — 기록 안 됨)' : rankSuffix(r);
     if (stop || el.hidden) {
-      if (r) UI.showToast(run.test ? `🎂 테스트 ${run.floors}층 ${r.score}점 (기록 안 됨)` : `🎂 ${run.floors}층 ${r.score}점으로 기록했어요${rank}`, 3000);
+      if (r) UI.showToast(run.test ? `🎂 테스트 ${run.floors}층 ${r.score}점 (기록 안 됨)` : r.closed ? `🎂 ${run.floors}층 ${r.score}점${rank}` : `🎂 ${run.floors}층 ${r.score}점으로 기록했어요${rank}`, 3000);
       return;
     }
     setPlaying(false);

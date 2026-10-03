@@ -1,7 +1,8 @@
 // 이벤트 게임 창(가위바위보 js/rps.js, 도둑 잡기 js/chase.js, 케이크 쌓기 js/cake.js) 아래쪽 공통 칸 — 서버는 api/_lib/board.js
 // - 랭킹 TOP 10(1~3위 ☕ 쿠폰) + 내 도전 기록
 // - 랭킹에 들었는데 연락처가 없으면 연락처 남기기 (서버가 암호화 저장, 개발자 모드에서만 보임)
-// - 개발자 모드: 연락처 보기 · 랭킹 초기화 · NPC 설정
+// - 랭킹 등록 마감(세 게임 공통) 안내 + 남은 시간 카운트다운 — 창 위쪽 첫 .rps-rule 아래
+// - 개발자 모드: 마감 시각 · 연락처 보기 · 랭킹 초기화 · NPC 설정
 // 창 안의 <div class="event-board">를 채운다. 모양은 가위바위보 창 클래스(.rps-*)를 같이 씀
 
 function eventBoard(el, { path, title, score, password, isPlaying, close, test }) {
@@ -23,6 +24,13 @@ function eventBoard(el, { path, title, score, password, isPlaying, close, test }
     </form>
     <section class="rps-admin" hidden>
       <h3>🔧 관리 (개발자 모드)</h3>
+      <form class="rps-deadline-form">
+        <label class="field">
+          <span>랭킹 등록 마감 <small>(세 게임 공통, 비우면 마감 없음)</small></span>
+          <input name="deadline" type="datetime-local" />
+        </label>
+        <button type="submit" class="btn btn-ghost">마감 저장</button>
+      </form>
       <div class="rps-admin-btns">
         <button type="button" class="btn btn-ghost rps-admin-test">🧪 테스트 플레이 (기록 안 됨)</button>
         <button type="button" class="btn btn-ghost rps-admin-view">연락처 보기</button>
@@ -42,6 +50,11 @@ function eventBoard(el, { path, title, score, password, isPlaying, close, test }
   $('.rps-board h3').textContent = title;
   const contactForm = $('.rps-contact');
   const admin = $('.rps-admin');
+  const deadlineForm = $('.rps-deadline-form');
+  const notice = Object.assign(document.createElement('p'), { className: 'rps-rule rps-deadline', hidden: true });
+  el.querySelector('.rps-rule').after(notice);
+  let deadline = null;
+  let timer = 0;
   const api = (body) => postJson(path, body);
   let mine = null;
   let onSettings = null;
@@ -77,7 +90,33 @@ function eventBoard(el, { path, title, score, password, isPlaying, close, test }
     }
   }
 
-  function render({ ranking = [], mine: history, hasContact }) {
+  /** 마감 안내 + 카운트다운 (마감이 없으면 숨김) */
+  function setDeadline(iso) {
+    deadline = iso ? new Date(iso) : null;
+    clearInterval(timer);
+    const local = deadline ? new Date(deadline - deadline.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+    deadlineForm.elements.deadline.value = local;
+    tick();
+    if (deadline) timer = setInterval(tick, 1000);
+  }
+
+  function tick() {
+    notice.hidden = !deadline;
+    if (!deadline) return;
+    const left = deadline - Date.now();
+    if (left <= 0) {
+      clearInterval(timer);
+      notice.innerHTML = '⏰ <b>랭킹 등록이 마감됐어요.</b><br />게임은 계속 할 수 있지만 기록은 남지 않아요.';
+      return;
+    }
+    const s = Math.floor(left / 1000);
+    const d = Math.floor(s / 86400);
+    const hms = [Math.floor(s / 3600) % 24, Math.floor(s / 60) % 60, s % 60].map((n) => String(n).padStart(2, '0')).join(':');
+    notice.innerHTML = `⏰ 랭킹 등록 마감까지 <b>${d ? `${d}일 ` : ''}${hms}</b><br />${fmt(deadline)} 이후 기록은 랭킹에 올라가지 않아요.`;
+  }
+
+  function render({ ranking = [], mine: history, hasContact, deadline: dl }) {
+    if (dl !== undefined) setDeadline(dl);
     const medals = ['🥇', '🥈', '🥉'];
     $('.rps-ranking').replaceChildren(
       ...ranking.map((r, i) => {
@@ -166,6 +205,15 @@ function eventBoard(el, { path, title, score, password, isPlaying, close, test }
     load();
   });
 
+  deadlineForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const v = deadlineForm.elements.deadline.value;
+    const r = await adminCall({ action: 'deadline', deadline: v ? new Date(v).toISOString() : null });
+    if (!r) return;
+    setDeadline(r.deadline);
+    UI.showToast(r.deadline ? `랭킹 마감: ${fmt(r.deadline)}` : '랭킹 마감을 없앴어요', 2500);
+  });
+
   $('.rps-admin-test').addEventListener('click', () => test());
 
   $('.rps-admin-npc').addEventListener('click', () => {
@@ -174,4 +222,10 @@ function eventBoard(el, { path, title, score, password, isPlaying, close, test }
   });
 
   return { reset, load, render, hideContact: () => (contactForm.hidden = true) };
+}
+
+/** 도전 결과 뒤에 붙일 순위 글자 (마감 뒤면 기록 안 됨) */
+function rankSuffix(r) {
+  if (r?.closed) return ' (랭킹 마감 — 기록 안 됨)';
+  return r?.rank && r.rank <= 3 ? ` · ${r.rank}위! ☕ 쿠폰 순위` : r?.rank ? ` · ${r.rank}위` : '';
 }
