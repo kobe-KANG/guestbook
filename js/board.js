@@ -26,9 +26,11 @@ function eventBoard(el, { path, title, score, password, isPlaying, close, test }
       <h3>🔧 관리 (개발자 모드)</h3>
       <form class="rps-deadline-form">
         <label class="field">
-          <span>랭킹 등록 마감 <small>(세 게임 공통, 비우면 마감 없음)</small></span>
-          <input name="deadline" type="datetime-local" />
+          <span>랭킹 등록 마감 <small>(세 게임 공통, 날짜를 비우면 마감 없음)</small></span>
+          <input name="date" type="date" />
         </label>
+        <select name="hour" aria-label="시">${Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, '0')}시</option>`).join('')}</select>
+        <select name="minute" aria-label="분">${Array.from({ length: 12 }, (_, i) => `<option value="${i * 5}">${String(i * 5).padStart(2, '0')}분</option>`).join('')}</select>
         <button type="submit" class="btn btn-ghost">마감 저장</button>
       </form>
       <div class="rps-admin-btns">
@@ -94,8 +96,10 @@ function eventBoard(el, { path, title, score, password, isPlaying, close, test }
   function setDeadline(iso) {
     deadline = iso ? new Date(iso) : null;
     clearInterval(timer);
-    const local = deadline ? new Date(deadline - deadline.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
-    deadlineForm.elements.deadline.value = local;
+    const f = deadlineForm.elements;
+    f.date.value = deadline ? new Date(deadline - deadline.getTimezoneOffset() * 60000).toISOString().slice(0, 10) : '';
+    f.hour.value = deadline ? deadline.getHours() : 0;
+    f.minute.value = deadline ? deadline.getMinutes() - (deadline.getMinutes() % 5) : 0;
     tick();
     if (deadline) timer = setInterval(tick, 1000);
   }
@@ -207,8 +211,10 @@ function eventBoard(el, { path, title, score, password, isPlaying, close, test }
 
   deadlineForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const v = deadlineForm.elements.deadline.value;
-    const r = await adminCall({ action: 'deadline', deadline: v ? new Date(v).toISOString() : null });
+    const f = deadlineForm.elements;
+    const at = f.date.value ? new Date(`${f.date.value}T00:00`) : null;
+    at?.setHours(+f.hour.value, +f.minute.value);
+    const r = await adminCall({ action: 'deadline', deadline: at ? at.toISOString() : null });
     if (!r) return;
     setDeadline(r.deadline);
     UI.showToast(r.deadline ? `랭킹 마감: ${fmt(r.deadline)}` : '랭킹 마감을 없앴어요', 2500);
