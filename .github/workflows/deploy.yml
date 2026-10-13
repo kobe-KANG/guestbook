@@ -1,0 +1,82 @@
+name: Deploy guestbook
+
+# 코드(이 저장소) + 사적인 데이터 저장소(vars.DATA_REPO, 비공개 가능)를 합쳐 Pages에 배포.
+# 데이터 저장소가 바뀌면(하객 등록·방명록 수정·개발자 모드 저장) 그쪽 notify 워크플로가 이 워크플로를 실행한다.
+# 필요한 설정 (Settings → Secrets and variables → Actions):
+#   secrets.DATA_TOKEN  데이터 저장소 Contents·Discussions 권한이 있는 fine-grained PAT
+#   vars.DATA_REPO      데이터 저장소 "owner/repo"
+#   vars.API_URL        Vercel API 주소 (예: https://<프로젝트>.vercel.app)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 동시에 여러 건이 들어오면 마지막 것만 배포 (어차피 전체를 다시 긁어옴)
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Checkout data repository
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ vars.DATA_REPO }}
+          token: ${{ secrets.DATA_TOKEN }}
+          path: content
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Build site
+        env:
+          API_URL: ${{ vars.API_URL }}
+        run: |
+          mkdir -p _site
+          cp -r index.html css js img _site/
+          # 데이터 저장소의 사진·NPC·하객 이미지, 배경음악, map-data.js를 코드 위에 덮어씀 (같은 경로면 데이터 쪽이 이김)
+          for d in img audio; do if [ -d content/$d ]; then cp -r content/$d _site/; fi; done
+          if [ -f content/js/map-data.js ]; then cp content/js/map-data.js _site/js/; fi
+          # 보관용 원본 png(페이지는 webp만 씀)는 사이트에 올리지 않음
+          rm -f _site/img/background/*.png _site/img/etc/*.png _site/img/npc/*/*.png
+          node -e 'console.log("const SITE_ENV = " + JSON.stringify({ apiUrl: process.env.API_URL || "" }) + ";")' > _site/js/env.js
+
+      # 갤러리 사진 → 썸네일/보기용 webp (변환 결과는 캐시해서 새 사진만 변환)
+      - uses: actions/cache@v6
+        with:
+          path: content/.cache/gallery
+          key: gallery-${{ hashFiles('content/img/gallery/**') }}
+          restore-keys: gallery-
+
+      - name: Build gallery
+        run: |
+          npm install --no-save --no-package-lock sharp@0.33
+          cd content && node ../scripts/build-gallery.mjs ../_site
+
+      - name: Fetch guestbook from Discussions
+        working-directory: _site
+        env:
+          GITHUB_TOKEN: ${{ secrets.DATA_TOKEN }}
+          DATA_REPO: ${{ vars.DATA_REPO }}
+          GUESTBOOK_CATEGORY: 방명록
+        run: node ../scripts/fetch-guests.mjs data/guests.json
+
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v5

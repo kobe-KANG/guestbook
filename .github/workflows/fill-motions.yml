@@ -1,0 +1,77 @@
+name: Fill missing guest motions
+
+# 정면만 있고 동작 이미지(걷기·점프 등)가 AI 오류로 빠진 하객을 찾아 마저 만든다 (scripts/fill-motions.mjs)
+# 데이터 저장소에 방명록 글이 올라오거나 바뀌면 그쪽 notify 워크플로가 실행한다.
+# GitHub 스케줄은 몇 시간씩 밀리거나 빠지기 일쑤라 보조용 (혼잡한 정각을 피함)
+# 만든 이미지는 데이터 저장소에 push → 데이터 저장소 notify가 재배포(deploy.yml)를 부른다.
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+    inputs:
+      max_guests:
+        description: '한 번에 처리할 하객 수'
+        default: '5'
+
+permissions:
+  contents: read
+  actions: write # 남은 하객이 있으면 이 워크플로를 다시 실행
+
+concurrency:
+  group: fill-motions
+  cancel-in-progress: false
+
+jobs:
+  fill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Checkout data repository
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ vars.DATA_REPO }}
+          token: ${{ secrets.DATA_TOKEN }}
+          path: content
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Generate missing motions
+        id: gen
+        working-directory: content
+        env:
+          GITHUB_TOKEN: ${{ secrets.DATA_TOKEN }}
+          DATA_REPO: ${{ vars.DATA_REPO }}
+          GUESTBOOK_CATEGORY: 방명록
+          SITE_URL: ${{ vars.SITE_URL || format('https://{0}.github.io/{1}/', github.repository_owner, github.event.repository.name) }}
+          MAX_GUESTS: ${{ inputs.max_guests || '5' }}
+        run: |
+          npm install --prefix .. --no-save --no-package-lock puppeteer-core@23
+          node ../scripts/fill-motions.mjs
+
+      - name: Commit and push to data repository
+        working-directory: content
+        run: |
+          git add img/guests
+          if git diff --cached --quiet; then
+            echo "새로 만든 이미지 없음"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898208+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "누락된 하객 동작 이미지 생성"
+          for i in 1 2 3; do
+            git pull -q --rebase && git push -q && exit 0
+            sleep 5
+          done
+          echo "push 실패" && exit 1
+
+      # 남은 하객이 있으면 이어서 (concurrency로 이번 실행이 끝난 뒤 시작)
+      - name: Run again for remaining guests
+        if: steps.gen.outputs.more == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run fill-motions.yml --ref main -f max_guests="${{ inputs.max_guests || '5' }}"

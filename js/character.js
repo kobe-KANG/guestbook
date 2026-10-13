@@ -1,0 +1,1586 @@
+// 캐릭터 = 스프라이트 + 네임태그 + (가끔) 말풍선을 묶은 컨테이너.
+// 컨테이너 원점(0,0)은 캐릭터 발 위치.
+
+// 확대해도 글자가 선명하도록 기기 해상도에 맞춰 크게 렌더링
+const TEXT_RESOLUTION = Math.min(5, Math.ceil((window.devicePixelRatio || 1) * 2));
+
+class Character extends Phaser.GameObjects.Container {
+  constructor(scene, x, y, info, { tagColor = '#ffffff', onSelect } = {}) {
+    super(scene, x, y);
+    scene.add.existing(this);
+
+    this.info = info;
+    this.texKey = createCharacterTexture(scene, info);
+    this.bubble = null;
+    this.timers = new Set(); // later()로 예약한 일 — 지워질 때 같이 취소
+
+    this.sprite = scene.add.sprite(0, 0, `${this.texKey}_0`).setOrigin(0.5, 1);
+    this.tag = scene.add
+      .text(0, 4, info.name, {
+        fontFamily: CONFIG.fontFamily,
+        fontSize: '15px',
+        color: tagColor,
+        padding: { x: 5, y: 2 },
+        resolution: TEXT_RESOLUTION,
+      })
+      .setOrigin(0.5, 0);
+    this.tagBg = scene.add.graphics(); // 이름표 배경 (모서리 살짝 둥글게)
+    this.drawTagBg();
+    this.add([this.sprite, this.tagBg, this.tag]);
+    this.baseHeight = CHAR_H; // 정면 이미지 높이 (칭호 위치 기준)
+    this.titleTag = null;
+    this.setTitle(info.title);
+
+    // 누르는 영역: 발(원점) 기준 고정 사각형 + 네임태그.
+    // 스프라이트 자체에 걸면 걷기·사다리 프레임마다 크기가 달라 가장자리를 눌러도 안 잡히는 경우가 생긴다.
+    this.setInteractive(new Phaser.Geom.Rectangle(0, 0, 1, 1), Phaser.Geom.Rectangle.Contains);
+    this.input.cursor = 'pointer';
+    this.updateHitArea(CHAR_W, CHAR_H);
+    this.on('pointerup', (pointer) => {
+      if (scene.view?.dragMoved) return; // 맵을 드래그하다 손을 뗀 경우는 클릭 아님
+      if (scene.dev?.editing) return; // 개발자 모드 편집 중
+      if (pointer.event?.target !== scene.game.canvas) return; // 팝업 등 캔버스 밖을 누른 경우
+      if (scene.dev?.tool === 'spawn' || scene.dev?.tool === 'couple') return; // 개발자 모드 시작점/신랑신부 도구는 DevMode가 처리
+      onSelect?.(this);
+    });
+
+    this.facesLeft = false; // 원본 이미지가 왼쪽을 바라보는지 (걷기 방향 뒤집기용)
+    this.setDepth(y);
+    this.scheduleBubble(Phaser.Math.Between(500, CONFIG.bubble.maxGap));
+
+    // 이미지 스프라이트가 있으면 로드되는 동안은 임시 캐릭터를 보여주고, 로드되면 교체.
+    // ready: 이미지 적용이 끝나면(실패해도) resolve → 첫 로딩 화면이 이걸 기다린다.
+    this.ready = info.spriteUrl
+      ? loadSpriteTextures(scene, info)
+          .then((sprite) => this.active && this.applySprite(sprite))
+          .catch((err) => console.warn(`${info.name} 스프라이트 로드 실패:`, err))
+      : Promise.resolve();
+  }
+
+  applySprite({ key, facesLeft }) {
+    this.texKey = key;
+    this.facesLeft = facesLeft;
+    this.sprite.setTexture(`${key}_0`).setScale(1 / CONFIG.sprite.textureScale);
+    this.updateHitArea(this.sprite.displayWidth, this.sprite.displayHeight);
+    this.baseHeight = this.sprite.displayHeight;
+    this.titleTag?.setY(-this.baseHeight - 3);
+  }
+
+  /** 칭호: 메이플 메달처럼 머리 위에 [칭호] (없으면 지움) */
+  setTitle(title) {
+    this.titleTag?.destroy();
+    this.titleTag = null;
+    this.titleTweens?.forEach((t) => t.remove());
+    this.titleTweens = [];
+    if (!title) return;
+    if (this.info.titleStyle === 'gold') return this.setGoldTitle(title);
+    const S = CONFIG.titleStyle;
+    const text = this.scene.add
+      .text(0, 0, title, { fontFamily: CONFIG.fontFamily, fontSize: '12px', fontStyle: 'bold', color: S.text, resolution: TEXT_RESOLUTION })
+      .setOrigin(0.5, 1);
+    const w = text.width + 14;
+    const h = text.height + 4;
+    text.setY(-2);
+    const g = this.scene.add.graphics();
+    g.fillStyle(S.fill, 0.92).fillRoundedRect(-w / 2, -h, w, h, 4);
+    g.lineStyle(1.5, S.line, 1).strokeRoundedRect(-w / 2, -h, w, h, 4);
+    g.fillStyle(S.line, 1).fillTriangle(-w / 2 - 5, -h / 2, -w / 2, -h / 2 - 4, -w / 2, -h / 2 + 4); // 양옆 리본 끝
+    g.fillTriangle(w / 2 + 5, -h / 2, w / 2, -h / 2 - 4, w / 2, -h / 2 + 4);
+    this.titleTag = this.scene.add.container(0, -this.baseHeight - 3, [g, text]);
+    this.titleTag.height = h;
+    this.add(this.titleTag);
+  }
+
+  /** 신랑·신부 전용 칭호 (info.titleStyle = 'gold'): 금빛 리본 메달 + 제비꼬리 + 하트 + 반짝이는 별 */
+  setGoldTitle(title) {
+    const G = CONFIG.goldTitleStyle;
+    const scene = this.scene;
+    const text = scene.add
+      .text(0, 0, title, {
+        fontFamily: CONFIG.fontFamily,
+        fontSize: '12px',
+        fontStyle: 'bold',
+        color: G.text,
+        stroke: G.textStroke,
+        strokeThickness: 3,
+        resolution: TEXT_RESOLUTION,
+      })
+      .setOrigin(0.5, 1);
+    const w = text.width + 22; // 양옆 하트 자리 (신랑·신부가 60px 간격으로 서도 안 겹치게 작게)
+    const h = text.height + 6;
+    text.setY(-3);
+    const g = scene.add.graphics();
+    // 제비꼬리 리본 (몸통 뒤, 양옆)
+    const tail = (s) =>
+      g.fillPoints(
+        [
+          { x: s * (w / 2 - 4), y: -h + 4 },
+          { x: s * (w / 2 + 7), y: -h + 4 },
+          { x: s * (w / 2 + 4), y: -h / 2 },
+          { x: s * (w / 2 + 7), y: -4 },
+          { x: s * (w / 2 - 4), y: -4 },
+        ],
+        true
+      );
+    g.fillStyle(G.tail, 1);
+    tail(-1);
+    tail(1);
+    // 몸통: 진한 금 테두리 → 금빛 바탕 → 위쪽 광택 → 안쪽 밝은 선
+    g.fillStyle(G.edge, 1).fillRoundedRect(-w / 2 - 1.5, -h - 1.5, w + 3, h + 3, 6);
+    g.fillStyle(G.fill, 1).fillRoundedRect(-w / 2, -h, w, h, 5);
+    g.fillStyle(G.shine, 0.95).fillRoundedRect(-w / 2 + 1, -h + 1, w - 2, h * 0.48, { tl: 4, tr: 4, bl: 0, br: 0 });
+    g.lineStyle(1, G.inner, 0.9).strokeRoundedRect(-w / 2 + 2, -h + 2, w - 4, h - 4, 4);
+    const heart = (x) =>
+      scene.add.text(x, -h / 2 - 0.5, '♥', { fontSize: '10px', color: G.heart, stroke: G.textStroke, strokeThickness: 2, resolution: TEXT_RESOLUTION }).setOrigin(0.5);
+    // 위 모서리에서 번갈아 반짝이는 별
+    const sparkle = (x, delay) => {
+      const star = scene.add.text(x, -h - 1, '✦', { fontSize: '11px', color: G.sparkle, stroke: G.edgeText, strokeThickness: 1, resolution: TEXT_RESOLUTION }).setOrigin(0.5);
+      this.titleTweens.push(
+        scene.tweens.add({ targets: star, alpha: { from: 1, to: 0.15 }, scale: { from: 1.15, to: 0.6 }, duration: 700, yoyo: true, repeat: -1, delay, ease: 'Sine.easeInOut' })
+      );
+      return star;
+    };
+    this.titleTag = scene.add.container(0, -this.baseHeight - 3, [
+      g,
+      heart(-w / 2 + 6),
+      heart(w / 2 - 6),
+      text,
+      sparkle(-w / 2 + 2, 0),
+      sparkle(w / 2 - 2, 700),
+    ]);
+    this.titleTag.height = h + 6; // 별이 위로 튀어나온 만큼
+    this.add(this.titleTag);
+  }
+
+  /** 머리 위 끝 y (말풍선·조종 표시를 이 위에): 캐릭터와 칭호 중 더 높은 쪽 */
+  headY() {
+    const top = -this.sprite.displayHeight;
+    return this.titleTag ? Math.min(top, this.titleTag.y - this.titleTag.height) : top;
+  }
+
+  /** 누르는 영역 = 캐릭터(정면 크기보다 조금 넓게 — 걸어다니는 중에도 잘 잡히게) + 발밑 네임태그 */
+  updateHitArea(width, height) {
+    const w = Math.max(CHAR_W, width) * 1.3;
+    const tagH = this.tag.height + 6;
+    this.input.hitArea.setTo(-w / 2, -height, w, height + tagH);
+  }
+
+  drawTagBg() {
+    const { width: w, height: h } = this.tag;
+    this.tagBg.clear().fillStyle(0x000000, 0.6).fillRoundedRect(-w / 2, 4, w, h, 3);
+  }
+
+  /** 방명록을 수정했을 때: 이름표·말풍선 문구 갱신 */
+  updateInfo(info) {
+    Object.assign(this.info, info);
+    if ('title' in info) this.setTitle(info.title);
+    this.tag.setText(this.info.name);
+    this.drawTagBg();
+    this.updateHitArea(this.sprite.displayWidth || CHAR_W, this.sprite.displayHeight || CHAR_H);
+  }
+
+  /** 스프라이트 이미지를 data URL로 반환 (팝업 프로필용) */
+  getAvatarUrl() {
+    return this.scene.textures.getBase64(`${this.texKey}_0`);
+  }
+
+  /** delay ms 뒤 fn. 그 사이 캐릭터가 지워지면(NPC 삭제·이미지 교체 등) 취소 — 지운 뒤 콜백이 this.scene(undefined)을 건드려 게임 루프가 멈추던 문제 */
+  later(delay, fn) {
+    const ev = this.scene.time.delayedCall(delay, () => {
+      this.timers.delete(ev);
+      fn();
+    });
+    this.timers.add(ev);
+    return ev;
+  }
+
+  destroy(fromScene) {
+    this.timers?.forEach((ev) => ev.remove());
+    this.timers?.clear();
+    this.sleepFx?.remove();
+    super.destroy(fromScene);
+  }
+
+  scheduleBubble(delay) {
+    this.later(delay, () => {
+      // 수다쟁이: 말풍선 전에 "…" 입력 중 표시를 잠깐 보여 준다. keepBubble(단체 사진 내 캐릭터)이면 지금 말풍선 유지
+      if (this.keepBubble) {
+        // 그대로
+      } else if (this.persona?.typing && this.state !== 'climb') {
+        this.typingDots(700);
+        this.later(700, () => !this.keepBubble && this.say(this.bubbleText()));
+      } else this.say(this.bubbleText());
+      const gap = Phaser.Math.Between(CONFIG.bubble.minGap, CONFIG.bubble.maxGap) * (this.persona?.bubbleGap ?? 1); // 수다쟁이는 자주
+      this.scheduleBubble(CONFIG.bubble.duration + gap);
+    });
+  }
+
+  /** 머리 위 흰 말풍선 안에서 점 3개가 차례로 통통 (duration ms 뒤 사라짐) */
+  typingDots(duration) {
+    if (!this.visible) return; // 화면 밖 (scene.update)
+    this.hideBubble();
+    const bg = this.scene.add.graphics().fillStyle(0xffffff, 0.95).fillRoundedRect(-17, -9, 34, 18, 9);
+    const dots = [-8, 0, 8].map((x) => this.scene.add.circle(x, 0, 2.6, 0xb08a82));
+    const box = this.scene.add.container(0, this.headY() - 16, [bg, ...dots]);
+    this.add(box);
+    dots.forEach((d, i) => this.scene.tweens.add({ targets: d, y: -3, duration: 160, delay: i * 110, yoyo: true, repeat: -1, repeatDelay: 200 }));
+    this.later(duration, () => {
+      this.scene.tweens.killTweensOf(dots);
+      box.destroy();
+    });
+  }
+
+  /** 글자·이모지를 띄워 위로 떠오르며 사라지게 (성향 효과 공용). 좌표는 발 기준 */
+  floatText(text, { x = 0, y = this.headY() - 4, size = 16, color = '#ffffff', stroke = null, rise = 26, dx = 0, duration = 1100, delay = 0 } = {}) {
+    if (!this.visible) return; // 화면 밖 (scene.update)
+    const style = { fontFamily: CONFIG.fontFamily, fontSize: `${size}px`, fontStyle: 'bold', color, resolution: TEXT_RESOLUTION };
+    if (stroke) Object.assign(style, { stroke, strokeThickness: 3 });
+    const t = this.scene.add.text(x, y, text, style).setOrigin(0.5, 1).setAlpha(0);
+    this.add(t);
+    this.scene.tweens.add({
+      targets: t,
+      x: x + dx,
+      y: y - rise,
+      alpha: { from: 1, to: 0, ease: 'Cubic.easeIn' }, // 처음엔 또렷하다가 끝에 사라짐
+      duration,
+      delay,
+      onComplete: () => t.destroy(),
+    });
+    return t;
+  }
+
+  /** 말풍선에 할 말 (하객은 성향에 따라 가끔 다른 말) */
+  bubbleText() {
+    return this.info.shortMsg;
+  }
+
+  say(message, duration = CONFIG.bubble.duration) {
+    if (!this.visible) return; // 화면 밖 (scene.update)
+    if (!message) return;
+    this.hideBubble();
+
+    const text = this.scene.add
+      .text(0, 0, message, {
+        fontFamily: CONFIG.fontFamily,
+        fontSize: '16px',
+        color: CONFIG.bubble.style.text,
+        resolution: TEXT_RESOLUTION,
+      })
+      .setOrigin(0.5);
+
+    const w = text.width + 18;
+    const h = text.height + 10;
+    const cy = this.headY() - 14 - h / 2; // 말풍선 중심 y (칭호 위)
+    const bottom = cy + h / 2;
+    text.setY(cy);
+
+    // 메이플스토리풍 말풍선: 아주 옅은 하늘색 바탕 + 얇고 연한 테두리 + 위쪽 광택·아래쪽 음영·옅은 그림자로 입체감
+    const B = CONFIG.bubble.style;
+    const top = cy - h / 2;
+    const left = -w / 2;
+    const r = 7;
+    const g = this.scene.add.graphics();
+    const tail = (dy = 0) => g.fillTriangle(-6, bottom - 1 + dy, 6, bottom - 1 + dy, 0, bottom + 8 + dy);
+    // 그림자 (아래로 살짝)
+    g.fillStyle(B.shadow, 0.22);
+    g.fillRoundedRect(left, top + 2, w, h, r);
+    tail(2);
+    // 바탕
+    g.fillStyle(B.fill, 1);
+    g.fillRoundedRect(left, top, w, h, r);
+    tail();
+    // 얇고 연한 테두리
+    g.lineStyle(B.lineWidth, B.line, 1);
+    g.strokeRoundedRect(left, top, w, h, r);
+    g.beginPath();
+    g.moveTo(-6, bottom);
+    g.lineTo(0, bottom + 8);
+    g.lineTo(6, bottom);
+    g.strokePath();
+    // 꼬리와 몸통 이음새의 테두리 가리기
+    g.fillStyle(B.fill, 1);
+    g.fillRect(-5, bottom - 2.5, 10, 3);
+    // 아래쪽 안쪽 음영 (테두리 쪽이 살짝 도톰해 보이게)
+    g.fillStyle(B.shade, 0.55);
+    g.fillRoundedRect(left + 1.5, top + h - 5, w - 3, 3.5, { tl: 0, tr: 0, bl: r - 2, br: r - 2 });
+    // 위쪽 광택
+    g.fillStyle(0xffffff, 0.85);
+    g.fillRoundedRect(left + 2, top + 1.5, w - 4, Math.max(4, h * 0.42), { tl: r - 2, tr: r - 2, bl: 3, br: 3 });
+
+    const bubble = this.scene.add.container(0, 0, [g, text]).setAlpha(0);
+    this.add(bubble);
+    this.bubble = bubble;
+
+    this.scene.tweens.add({ targets: bubble, alpha: 1, duration: 150 });
+    this.later(duration, () => {
+      if (this.bubble !== bubble) return;
+      this.scene.tweens.add({
+        targets: bubble,
+        alpha: 0,
+        duration: 200,
+        onComplete: () => this.hideBubble(bubble),
+      });
+    });
+  }
+
+  hideBubble(target = this.bubble) {
+    if (!target) return;
+    target.destroy();
+    if (this.bubble === target) this.bubble = null;
+  }
+
+  tick() {}
+}
+
+/**
+ * 발판 끝(dir 방향)에 바로 이어지는 다른 발판 이름 (끝점끼리 가로 6px·세로 10px 이내).
+ * 개발자 모드에서 직선 여러 개로 그린 길은 이렇게 이어진 발판들 → 끊김 없이 걸어서 넘어간다.
+ * ok(name): 갈 수 있는 발판인지 (신랑·신부는 무대만)
+ */
+function floorContinuation(fromName, dir, ok = () => true) {
+  const end = dir > 0 ? CONFIG.floors[fromName].path.at(-1) : CONFIG.floors[fromName].path[0];
+  for (const [name, f] of Object.entries(CONFIG.floors)) {
+    if (name === fromName || !ok(name)) continue;
+    const start = dir > 0 ? f.path[0] : f.path.at(-1);
+    if (Math.abs(start[0] - end[0]) <= 6 && Math.abs(start[1] - end[1]) <= 10) return name;
+  }
+  return null;
+}
+
+/**
+ * 발판 끝(x, dir 방향)에서 점프로 건너갈 수 있는 다른 발판의 착지점들 [{ name, x, y }].
+ * 가로 틈이 maxGap 이하이고, 착지 높이 차가 위로 maxUp / 아래로 maxDown 이내인 발판 (ok(name)인 것만).
+ * 틈이 없이 겹쳐 있는 발판(바로 아래층 등)으로 뛰어내리는 것도 포함.
+ */
+function gapJumpTargets(fromName, x, dir, ok = () => true) {
+  const g = CONFIG.motion.gapJump;
+  const from = CONFIG.floors[fromName];
+  const y = floorY(from, x);
+  const span = floorSpan(from);
+  const edge = dir > 0 ? span.x2 : span.x1;
+  const out = [];
+  const next = floorContinuation(fromName, dir, ok); // 이어진 발판은 점프 대신 걸어서 넘어감
+  for (const [name, f] of Object.entries(CONFIG.floors)) {
+    if (name === fromName || !ok(name) || name === next) continue;
+    const { x1, x2 } = floorSpan(f);
+    const m = Math.min(CHAR_W / 2, (x2 - x1) / 4);
+    const gap = dir > 0 ? x1 - edge : edge - x2;
+    if (gap > g.maxGap) continue;
+    const tx = dir > 0 ? Math.max(x1 + m, x + 12) : Math.min(x2 - m, x - 12);
+    if (tx < x1 + m - 0.5 || tx > x2 - m + 0.5) continue; // 앞쪽에 착지할 자리가 없음
+    const ty = floorY(f, tx);
+    if (ty - y < -g.maxUp || ty - y > g.maxDown) continue;
+    out.push({ name, x: tx, y: ty });
+  }
+  return out;
+}
+
+/** 층에 붙은 사다리/로프 목록 */
+function climbsOn(floorName) {
+  return CONFIG.climbs.filter((c) => c.floors.includes(floorName));
+}
+
+/**
+ * 하객: 층 위를 걷다 멈췄다 하고, 가끔 점프하거나 사다리/로프를 타고 다른 층으로 간다.
+ * state: idle | walk | climb (점프는 걷는 도중 겹쳐서 일어남)
+ */
+class GuestCharacter extends Character {
+  constructor(scene, floor, info, opts) {
+    const { x1, x2 } = floorSpan(floor);
+    const margin = Math.min(CHAR_W / 2, (x2 - x1) / 4); // 짧은 발판에서도 범위가 뒤집히지 않게
+    const x = opts?.x ?? Phaser.Math.Between(x1 + margin, x2 - margin);
+    super(scene, x, floorY(floor, x), info, opts);
+
+    this.motions = {}; // 이미지 스프라이트 로드 후 { walk, jump, ladder, rope } 사용 가능 여부
+    this.baseSpeed = Phaser.Math.Between(CONFIG.walkSpeed.min, CONFIG.walkSpeed.max);
+    this.setPersonality(info.personality);
+    this.dir = Math.random() < 0.5 ? -1 : 1;
+    this.state = 'idle';
+    this.stateTimer = 0;
+    this.jump = null; // { t, duration }
+    this.climb = null; // { targetFloor, toY, dir }
+    this.climbReadyAt = 0;
+    this.setFloor(Object.keys(CONFIG.floors).find((name) => CONFIG.floors[name] === floor));
+  }
+
+  setFloor(name) {
+    this.floorName = name;
+    this.floor = CONFIG.floors[name];
+    const { x1, x2 } = floorSpan(this.floor);
+    const margin = Math.min(CHAR_W / 2, (x2 - x1) / 4);
+    // 이어진 발판이 있는 쪽 끝은 여유 없이 끝까지 (그대로 걸어서 넘어감)
+    const ok = (n) => this.canStandOn(n);
+    this.nextFloor = { [-1]: floorContinuation(name, -1, ok), [1]: floorContinuation(name, 1, ok) };
+    // 사다리/로프가 층 끝 가까이 있어도 닿을 수 있게 범위를 넓힌다
+    const climbXs = this.info?.npc || this.canClimb === false ? [] : climbsOn(name).map((c) => c.x); // NPC·신랑신부(AI)는 사다리/로프를 안 탄다
+    this.minX = Math.min(this.nextFloor[-1] ? x1 : x1 + margin, ...climbXs);
+    this.maxX = Math.max(this.nextFloor[1] ? x2 : x2 - margin, ...climbXs);
+  }
+
+  /** 발판 끝에서 이어진 발판으로 넘어가기 (x는 새 발판 안으로) */
+  continueTo(name) {
+    this.setFloor(name);
+    const { x1, x2 } = floorSpan(this.floor);
+    this.x = Phaser.Math.Clamp(this.x, x1, x2);
+  }
+
+  /** 설 수 있는 발판: 하객·NPC는 어디든 (무대 포함). 신랑·신부는 CoupleCharacter에서 따로 */
+  canStandOn() {
+    return true;
+  }
+
+  setDir(dir) {
+    this.dir = dir;
+    this.sprite.setFlipX(this.facesLeft ? dir > 0 : dir < 0);
+  }
+
+  applySprite(sprite) {
+    super.applySprite(sprite);
+    this.motions = sprite.motions ?? {};
+    if (this.controlled) {
+      this.poseKey = null; // 다음 프레임에 조종 포즈를 새 이미지로 다시 적용
+      this.placeMarker();
+    } else {
+      this.updatePose();
+    }
+  }
+
+  /** 성향(CONFIG.personalities 키) → 걷는 속도·상태 비율·특별 동작 */
+  setPersonality(key) {
+    this.persona = CONFIG.personalities[key] ?? null;
+    this.speed = Math.round(this.baseSpeed * (this.persona?.speed ?? 1));
+  }
+
+  updateInfo(info) {
+    super.updateInfo(info);
+    if ('personality' in info) this.setPersonality(info.personality);
+  }
+
+  bubbleText() {
+    const p = this.persona;
+    if (this.posing) return this.info.shortMsg; // 단체 사진 중엔 성향 말 대신 한줄 멘트
+    if (this.idlePose === 'sleep') return null; // 자는 동안은 말풍선 대신 z 글자 (startSleepFx)
+    return p?.lines && Math.random() < p.lineChance ? Phaser.Utils.Array.GetRandom(p.lines) : this.info.shortMsg;
+  }
+
+  pickState() {
+    const p = this.persona;
+    const { walkScale, idleScale } = CONFIG.motion;
+    this.state = Math.random() < (p?.walk ?? 0.65) * walkScale ? 'walk' : 'idle';
+    const [min, max] = p?.[`${this.state}Time`] ?? [1200, 4000];
+    const scale = this.state === 'idle' ? idleScale : 1;
+    this.stateTimer = Phaser.Math.Between(min * scale, max * scale);
+    if (this.state === 'walk' && Math.random() < 0.5) this.dir = -this.dir;
+    // 성향별 서 있을 때 특별 동작
+    this.idlePose = this.state === 'idle' ? p?.idle ?? null : null;
+    if (this.idlePose === 'sleep') this.startSleepFx();
+    if (this.idlePose === 'photo') this.photoFlash();
+    if (this.idlePose === 'eat') this.eatSnack();
+    if (this.idlePose === 'heart') {
+      this.floatText(Phaser.Utils.Array.GetRandom(['♥', '✿']), { size: 15, color: '#ff8fb1', stroke: '#ffffff', rise: 22, duration: 1800, delay: 300 });
+    }
+    // 탐험가: 걷기 시작할 때 가끔 머리 위에 "!"
+    if (this.state === 'walk' && p?.dust && Math.random() < 0.2) {
+      this.floatText('!', { size: 20, color: '#ffb300', stroke: '#ffffff', rise: 10, duration: 800 });
+    }
+    if (this.idlePose === 'dance') this.setDanceStyle(Math.random() < 0.5 ? 'hop' : 'shuffle');
+    this.updatePose();
+  }
+
+  /** 댄서: 통통 점프(hop) 또는 셔플 스텝(shuffle: 한 방향으로 직진하면서 걷기 모션만 좌우로 번갈아). 1.2~2.2초 뒤 다른 쪽으로 */
+  setDanceStyle(style) {
+    Object.assign(this, { danceStyle: style, danceSwitch: Phaser.Math.Between(1200, 2200), danceDir: this.dir, danceFace: this.dir, danceFlip: 0 });
+    this.updatePose();
+  }
+
+  /** 셔플 스텝: 천천히 한 방향으로 가면서 0.24초마다 바라보는 쪽만 좌우로 뒤집는다 (발판 끝이면 반대로) */
+  tickShuffle(delta) {
+    this.x += (this.danceDir * this.speed * 0.6 * delta) / 1000;
+    if (this.x <= this.minX || this.x >= this.maxX) {
+      this.x = Phaser.Math.Clamp(this.x, this.minX, this.maxX);
+      this.danceDir = -this.danceDir;
+    }
+    this.danceFlip -= delta;
+    if (this.danceFlip > 0) return;
+    this.danceFlip = 240;
+    this.danceFace = -this.danceFace;
+    this.sprite.setFlipX(this.facesLeft ? this.danceFace > 0 : this.danceFace < 0);
+  }
+
+  /** 먹보: 머리 위에 음식이 톡 나타났다가 입으로 쏙 → 냠! */
+  eatSnack() {
+    if (!this.visible) return; // 화면 밖 (scene.update)
+    const food = Phaser.Utils.Array.GetRandom(['🍰', '🍗', '🍙', '🍩', '🍓', '🍕', '🍦', '🍪']);
+    const y = this.headY() - 4;
+    const t = this.scene.add.text(0, y, food, { fontSize: '22px', resolution: TEXT_RESOLUTION }).setOrigin(0.5, 1).setScale(0);
+    this.add(t);
+    this.scene.tweens.chain({
+      targets: t,
+      tweens: [
+        { scale: 1, y: y - 6, duration: 300, ease: 'Back.easeOut' },
+        { scale: 0, y: -this.sprite.displayHeight * 0.55, duration: 320, delay: 800, ease: 'Quad.easeIn' },
+      ],
+      onComplete: () => {
+        t.destroy();
+        if (this.active && this.idlePose === 'eat') this.say('냠!', 1000);
+      },
+    });
+  }
+
+  /** 잠꾸러기: 자는 동안 얼굴 쪽에서 z 글자가 크기를 달리하며 떠오르고, 가끔 콧방울이 부풀었다 톡 */
+  startSleepFx() {
+    this.sleepFx?.remove();
+    let n = 0;
+    this.sleepFx = this.scene.time.addEvent({
+      delay: 550,
+      loop: true,
+      callback: () => {
+        if (!this.active || this.idlePose !== 'sleep') {
+          this.sleepFx?.remove();
+          this.sleepFx = null;
+          return;
+        }
+        const face = this.dir * this.sprite.displayWidth * 0.3; // 엎드린 모습의 얼굴 쪽
+        const top = -this.sprite.displayHeight;
+        n++;
+        if (n % 5 === 0) return this.snotBubble(face, top * 0.45);
+        this.floatText('z', { x: face, y: top - 2, size: 13 + (n % 3) * 5, color: '#6f7fff', stroke: '#ffffff', rise: 26, dx: this.dir * 44, duration: 1800 }); // 칭호에 가리지 않게 옆으로 비스듬히
+      },
+    });
+  }
+
+  snotBubble(x, y) {
+    if (!this.visible) return; // 화면 밖 (scene.update)
+    const b = this.scene.add.circle(x + this.dir * 6, y, 7, 0xbfe6ff, 0.75).setStrokeStyle(1.5, 0xffffff, 0.9).setScale(0.2);
+    this.add(b);
+    this.scene.tweens.chain({
+      targets: b,
+      tweens: [
+        { scale: 1.3, duration: 1100, ease: 'Sine.easeInOut' },
+        { scale: 1.8, alpha: 0, duration: 120 }, // 톡
+      ],
+      onComplete: () => b.destroy(),
+    });
+  }
+
+  /** 탐험가: 점프 착지 때 발밑에 흙먼지 */
+  landDust() {
+    if (!this.visible) return; // 화면 밖 (scene.update)
+    for (let i = 0; i < 6; i++) {
+      const side = i % 2 ? 1 : -1;
+      const d = this.scene.add.circle(side * 4, -2, Phaser.Math.FloatBetween(3, 5), 0xb0915f).setStrokeStyle(1, 0xffffff, 0.6);
+      this.add(d);
+      this.scene.tweens.add({
+        targets: d,
+        x: side * Phaser.Math.Between(14, 26),
+        y: -Phaser.Math.Between(4, 10),
+        scale: 0.3,
+        alpha: { value: 0, ease: 'Quad.easeIn' }, // 퍼지는 동안은 보이다가 끝에 사라짐
+        duration: Phaser.Math.Between(500, 650),
+        ease: 'Quad.easeOut',
+        onComplete: () => d.destroy(),
+      });
+    }
+  }
+
+  /** 댄서: 춤추는 동안 발밑에서 음표가 튀어 오름 */
+  tickNotes(delta) {
+    this.noteTimer = (this.noteTimer ?? 0) - delta;
+    if (this.noteTimer > 0) return;
+    this.noteTimer = Phaser.Math.Between(350, 600);
+    // ︎: 지원하는 기기에선 이모지 대신 글자 모양 → 지정한 색으로 (Windows는 무시하고 이모지로 그림)
+    this.floatText(Phaser.Utils.Array.GetRandom(['♪', '♫', '♬']) + '︎', {
+      x: Phaser.Math.Between(-14, 14),
+      y: -this.sprite.displayHeight * 0.25,
+      size: Phaser.Math.Between(13, 18),
+      color: Phaser.Utils.Array.GetRandom(['#ff6fa8', '#a47bff', '#4fb8ff', '#ffb300']),
+      stroke: '#ffffff',
+      rise: 34,
+      dx: Phaser.Math.Between(-16, 16),
+      duration: 1000,
+    });
+  }
+
+  /** 사진광: 머리 옆에서 카메라 플래시가 번쩍 + 주변에 반짝이 + 찰칵 */
+  photoFlash() {
+    if (!this.visible) return; // 화면 밖 (scene.update)
+    const flash = this.scene.add.circle(this.dir * 10, this.headY() * 0.6, 7, 0xffffff, 0.95);
+    this.add(flash);
+    this.scene.tweens.add({ targets: flash, scale: 3.2, alpha: 0, duration: 380, onComplete: () => flash.destroy() });
+    // 몸 둘레 여기저기에 네 갈래 별이 차례로 반짝였다 사라짐
+    const h = this.sprite.displayHeight;
+    for (let i = 0; i < 6; i++) {
+      const color = Phaser.Utils.Array.GetRandom([0xffffff, 0xfff3a8, 0xffd1e0]);
+      const star = this.scene.add.star(Phaser.Math.Between(-32, 32), -Phaser.Math.Between(6, h + 10), 4, 2.4, 10, color).setScale(0);
+      this.add(star);
+      this.scene.tweens.add({
+        targets: star,
+        scale: { from: 0, to: Phaser.Math.FloatBetween(0.9, 1.5) },
+        angle: 90,
+        duration: 300,
+        delay: 80 + i * 90,
+        yoyo: true,
+        hold: 250,
+        onComplete: () => star.destroy(),
+      });
+    }
+    this.say('찰칵!', 1500);
+  }
+
+  /** 현재 상태에 맞는 애니메이션/텍스처 */
+  updatePose() {
+    const key = this.texKey;
+    if (this.state === 'climb') {
+      // 사다리/로프 이미지가 없으면 서로 대신 쓰고, 둘 다 없으면 정면 그대로
+      const type = this.climb.type;
+      const other = type === 'ladder' ? 'rope' : 'ladder';
+      const anim = this.motions[type] ? type : this.motions[other] ? other : null;
+      this.sprite.setFlipX(false);
+      if (anim) this.sprite.play(`${key}_${anim}`, true);
+      else {
+        this.sprite.stop();
+        this.sprite.setTexture(`${key}_0`);
+      }
+      return;
+    }
+    const jumping = this.jump ?? this.leap;
+    if (jumping && this.motions.jump) {
+      this.setDir(this.dir);
+      this.sprite.play({ key: `${key}_jump`, frameRate: (4 * 1000) / jumping.duration }, true);
+      return;
+    }
+    if (this.state === 'walk') {
+      this.setDir(this.dir);
+      this.sprite.play(`${key}_walk`, true);
+    } else if (this.idlePose === 'dance' && this.danceStyle === 'shuffle' && this.motions.walk) {
+      this.sprite.play(`${key}_walk`, true); // 셔플 스텝: 걷기 모션 (좌우 뒤집기는 tickShuffle)
+    } else if ((this.idlePose === 'sleep' || this.idlePose === 'crouch') && this.motions.prone) {
+      this.setDir(this.dir); // 잠꾸러기: 엎드려 자기 / 단체 사진: 앉기
+      this.sprite.play(`${key}_prone`, true);
+    } else {
+      this.sprite.stop();
+      this.sprite.setTexture(`${key}_0`);
+      if (this.facesLeft) this.sprite.setFlipX(false); // 정면 이미지는 뒤집지 않음
+    }
+  }
+
+  /** 발판/사다리가 바뀌었을 때 (개발자 모드): 내 층이 없어졌으면 다른 층으로 옮기고 범위를 다시 잡는다 */
+  onMapChanged() {
+    this.climb = null;
+    this.jump = null;
+    this.leap = null;
+    if (this.state === 'climb' || this.state === 'leap') this.state = 'idle';
+    let name = this.floorName;
+    if (!CONFIG.floors[name] || !this.canStandOn(name)) {
+      const floor = pickGuestFloor();
+      name = Object.keys(CONFIG.floors).find((n) => CONFIG.floors[n] === floor);
+      const { x1, x2 } = floorSpan(floor);
+      this.x = Phaser.Math.Between(x1, x2);
+    }
+    this.setFloor(name);
+    this.x = Phaser.Math.Clamp(this.x, this.minX, this.maxX);
+    this.y = floorY(this.floor, this.x);
+    this.updatePose();
+  }
+
+  /** 개발자 모드에서 끌어다 놓기: name 발판의 x 위치에 바로 선다 (조종 중이면 조종은 그대로) */
+  dropAt(name, x) {
+    this.held = false;
+    this.climb = null;
+    this.jump = null;
+    this.leap = null;
+    this.setFloor(name);
+    const { x1, x2 } = floorSpan(this.floor);
+    this.x = this.controlled ? Phaser.Math.Clamp(x, x1, x2) : Phaser.Math.Clamp(x, this.minX, this.maxX);
+    const y = floorY(this.floor, this.x);
+    if (this.controlled) {
+      this.landOn(name, y);
+      this.poseKey = null;
+    } else {
+      this.y = y;
+      this.state = 'idle';
+      this.stateTimer = Phaser.Math.Between(800, 2000);
+      this.updatePose();
+    }
+    this.setDepth(this.y);
+  }
+
+  /** 단체 사진: name 발판 x에 서서 자리를 지킨다 (가끔 제자리 점프·앉기만). posing = false면 다시 돌아다님 */
+  startPose(name, x) {
+    this.dropAt(name, x);
+    this.posing = true;
+    this.idlePose = null;
+    this.stateTimer = Phaser.Math.Between(300, 1500);
+    this.updatePose();
+  }
+
+  tickPose(delta) {
+    let jumpOffset = 0;
+    if (this.jump) {
+      this.jump.t += delta;
+      const p = this.jump.t / this.jump.duration;
+      if (p >= 1) {
+        this.jump = null;
+        this.updatePose();
+      } else jumpOffset = CONFIG.motion.jumpHeight * 4 * p * (1 - p);
+    } else if ((this.stateTimer -= delta) <= 0) {
+      // 서 있기 / 앉기 / 점프 중 하나
+      const r = Math.random();
+      this.idlePose = r < 0.25 && this.motions.prone ? 'crouch' : null;
+      this.stateTimer = Phaser.Math.Between(800, 2000);
+      if (r > 0.7 && this.canJump !== false) this.startJump();
+      else this.updatePose();
+    }
+    const groundY = floorY(this.floor, this.x);
+    this.y = groundY - jumpOffset;
+    this.setDepth(groundY);
+  }
+
+  /** 다른 발판으로 점프해 건너가기 (포물선으로 착지점까지) */
+  startLeap(target) {
+    const span = floorSpan(CONFIG.floors[target.name]);
+    if (target.x < span.x1 || target.x > span.x2) {
+      target = { ...target, x: Phaser.Math.Clamp(target.x, span.x1, span.x2) };
+      target.y = floorY(CONFIG.floors[target.name], target.x);
+    }
+    const dist = Math.hypot(target.x - this.x, target.y - this.y);
+    this.jump = null;
+    this.state = 'leap';
+    this.leap = {
+      ...target,
+      x0: this.x,
+      y0: this.y,
+      t: 0,
+      duration: Phaser.Math.Clamp(450 + dist * 4, 500, 1000),
+      height: CONFIG.motion.jumpHeight + Math.max(0, this.y - target.y) * 0.6, // 위로 갈수록 높이 뜀
+    };
+    this.dir = Math.sign(target.x - this.x) || this.dir;
+    this.hideBubble();
+    this.updatePose();
+  }
+
+  startJump() {
+    this.jump = { t: 0, duration: CONFIG.motion.jumpDuration };
+    this.updatePose();
+  }
+
+  /** x 위치의 사다리/로프를 타고 반대편 층으로 */
+  startClimb(climb) {
+    const { top, bottom } = climbEnds(climb);
+    // 매달린 사다리/로프는 위 발판에서만 탈 수 있다 (아래 끝이 허공)
+    if (!bottom.name && this.floorName !== top.name) return;
+    const target = this.floorName === top.name ? bottom : top;
+    if (!target.name) target.y += CONFIG.motion.control.grabHeight; // 매달린 끝: 손이 끝에 걸릴 때까지
+    this.jump = null;
+    this.state = 'climb';
+    this.climb = { ref: climb, type: climb.type, targetName: target.name, toY: target.y, dir: Math.sign(target.y - this.y) };
+    this.x = climb.x;
+    this.hideBubble();
+    this.updatePose();
+  }
+
+  finishClimb() {
+    if (!this.climb.targetName) {
+      // 매달린 사다리/로프 아래 끝: 아래 가까이 발판이 있으면 뛰어내리고, 없으면 다시 올라간다
+      const below = this.floorBelow(this.x, this.y);
+      const by = below && floorY(CONFIG.floors[below], this.x);
+      if (below && by - this.y <= CONFIG.motion.gapJump.maxDown * 1.5) {
+        this.climb = null;
+        this.state = 'walk';
+        return this.startLeap({ name: below, x: this.x + this.dir * 10, y: floorY(CONFIG.floors[below], this.x + this.dir * 10) });
+      }
+      const { top } = climbEnds(this.climb.ref);
+      Object.assign(this.climb, { targetName: top.name, toY: top.y, dir: -1 });
+      return;
+    }
+    this.setFloor(this.climb.targetName);
+    this.y = this.climb.toY;
+    this.climb = null;
+    this.climbReadyAt = this.scene.time.now + CONFIG.motion.climbCooldown;
+    this.state = 'walk';
+    this.stateTimer = Phaser.Math.Between(1500, 3500);
+    this.dir = Math.random() < 0.5 ? -1 : 1;
+    this.updatePose();
+  }
+
+  // ---------- 개발자 모드: 직접 조종 ----------
+  // phys.mode: ground(발판 위) | air(점프/낙하, 중력) | climb(사다리/로프)
+  // 공중에서는 내려오는 중에만 발판에 착지(아래에서 위로는 통과) — 메이플 방식
+
+  setControlled(on) {
+    this.controlled = on;
+    const aiClimb = this.state === 'climb' ? this.climb : null;
+    const aiAirborne = this.state === 'leap' || Boolean(this.jump);
+    this.climb = null;
+    this.jump = null;
+    this.leap = null;
+    this.idlePose = null; // 자던 중이었어도 깨어남
+    if (on) {
+      this.phys = { mode: 'ground', vx: 0, vy: 0, climb: null };
+      if (aiClimb) {
+        // 사다리/로프를 타던 중이면 그 자리에 매달린 채로 시작
+        const { top, bottom } = climbEnds(aiClimb.ref);
+        if (!bottom.name) bottom.y += CONFIG.motion.control.grabHeight;
+        this.phys = { mode: 'climb', vx: 0, vy: 0, climb: { type: aiClimb.type, x: this.x, top, bottom } };
+      } else if (aiAirborne) {
+        this.phys.mode = 'air'; // 점프 중이었으면 그 자리에서 떨어져 착지
+      }
+      this.state = 'idle';
+      this.poseKey = null;
+      this.hideBubble();
+      this.marker = this.scene.add
+        .text(0, 0, '▼', { fontSize: '18px', color: '#ffd400', stroke: '#6b4e00', strokeThickness: 3, resolution: TEXT_RESOLUTION })
+        .setOrigin(0.5, 1);
+      this.add(this.marker);
+      this.placeMarker();
+      return;
+    }
+    this.marker?.destroy();
+    this.marker = null;
+    this.sprite.anims.resume();
+    // 공중/사다리에서 놓으면 지금 위치 아래의 가장 가까운 발판으로
+    if (this.phys?.mode !== 'ground') {
+      const below = this.floorBelow(this.x, this.y - 40);
+      if (below) this.floorName = below;
+    }
+    this.phys = null;
+    this.state = 'idle';
+    this.stateTimer = 0;
+    this.onMapChanged();
+  }
+
+  /** 도둑 잡기 추격자로: 조종 물리에 input(delta)이 주는 입력으로 움직인다 (speed = 걷기 속도 배율). stopChase로 원래대로 */
+  startChase(input, speed) {
+    this.setControlled(true);
+    this.marker?.destroy();
+    this.marker = null;
+    this.chaser = { input, speed };
+  }
+
+  stopChase() {
+    this.chaser = null;
+    this.setControlled(false);
+  }
+
+  placeMarker() {
+    if (this.marker) this.marker.setY(this.headY() - 4);
+  }
+
+  /** (x, y) 아래(또는 같은 높이)에 있는 가장 가까운 발판 이름 (설 수 없는 발판 제외) */
+  floorBelow(x, y) {
+    let best = null;
+    let bestY = Infinity;
+    for (const [name, f] of Object.entries(CONFIG.floors)) {
+      if (!this.canStandOn(name)) continue;
+      const { x1, x2 } = floorSpan(f);
+      if (x < x1 || x > x2) continue;
+      const fy = floorY(f, x);
+      if (fy >= y && fy < bestY) {
+        best = name;
+        bestY = fy;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * 잡을 수 있는 사다리/로프. 발판 위(onFloor)면 ↑는 아래쪽 끝 발판에서, ↓는 위쪽 끝 발판에서만.
+   * 공중이면 사다리 x 가까이 + 사다리 높이 범위 안이면 잡는다.
+   */
+  findClimb(vert, onFloor) {
+    const { grabRange: range, grabHeight } = CONFIG.motion.control;
+    for (const c of CONFIG.climbs) {
+      if (Math.abs(c.x - this.x) > range || !c.floors.every((n) => CONFIG.floors[n])) continue;
+      const { top, bottom } = climbEnds(c);
+      // 발이 내려갈 수 있는 한계: 발판이면 그 발판, 매달린 끝이면 손(발 위 grabHeight)이 끝에 걸릴 때까지
+      const bottomLimit = bottom.name ? bottom.y : bottom.y + grabHeight;
+      const grab = (y) => ({ type: c.type, x: c.x, top, bottom: { ...bottom, y: bottomLimit }, y });
+      if (onFloor) {
+        if (vert < 0 && bottom.name && onFloor === bottom.name) return grab(bottom.y - 1);
+        if (vert > 0 && onFloor === top.name) return grab(top.y + 1);
+      } else {
+        // 공중: 손 높이(발 - grabHeight)가 사다리/로프 범위 안이면 잡는다
+        const handY = this.y - grabHeight;
+        if (handY > top.y - 6 && handY < bottom.y + 6) return grab(Phaser.Math.Clamp(this.y, top.y + 1, bottomLimit - 1));
+      }
+    }
+    return null;
+  }
+
+  /** 지금 서 있는 발판 아래에 다른 발판이 있는지 (엎드려 뛰어내리기 가능 여부) */
+  hasFloorBelow() {
+    return Object.entries(CONFIG.floors).some(([name, f]) => {
+      if (!this.canStandOn(name) || name === this.floorName) return false;
+      const { x1, x2 } = floorSpan(f);
+      return this.x >= x1 && this.x <= x2 && floorY(f, this.x) > this.y + 2;
+    });
+  }
+
+  landOn(name, y) {
+    this.setFloor(name);
+    // 사다리 끝이 발판 끝보다 살짝 밖에 있어도 발판 안쪽에 내려선다 (안 그러면 바로 떨어져서 다시 매달림)
+    const { x1, x2 } = floorSpan(this.floor);
+    if (this.x < x1 || this.x > x2) {
+      this.x = Phaser.Math.Clamp(this.x, x1, x2);
+      y = floorY(this.floor, this.x);
+    }
+    this.y = y;
+    Object.assign(this.phys, { mode: 'ground', vx: 0, vy: 0, climb: null, prone: false, dropFrom: null });
+  }
+
+  /** 조종 중 포즈 (바뀔 때만 애니메이션 교체) */
+  setControlPose(key, apply) {
+    if (this.poseKey === key) return;
+    this.poseKey = key;
+    this.sprite.anims.resume();
+    apply();
+    this.placeMarker();
+  }
+
+  /** speed: 걷기 속도 배율 (도둑 잡기 추격자) */
+  tickControlled(delta, input, speed = 1) {
+    const c = CONFIG.motion.control;
+    const walk = c.walkSpeed * speed;
+    const dt = Math.min(delta, 50) / 1000;
+    const p = this.phys;
+    const h = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    const v = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+    const jump = input.consumeJump();
+    const key = this.texKey;
+
+    if (p.mode === 'climb') {
+      const cl = p.climb;
+      if (jump && h) {
+        // 사다리에서 옆으로 점프해서 내리기
+        Object.assign(p, { mode: 'air', vx: h * walk, vy: -c.jumpVelocity * 0.6, climb: null });
+        p.noGrabUntil = this.scene.time.now + 400; // 방금 놓은 사다리를 바로 다시 잡지 않게
+        this.dir = h;
+      } else {
+        this.y += v * c.climbSpeed * dt;
+        if (this.y <= cl.top.y) this.landOn(cl.top.name, cl.top.y);
+        else if (this.y >= cl.bottom.y) {
+          if (cl.bottom.name) this.landOn(cl.bottom.name, cl.bottom.y);
+          else {
+            Object.assign(p, { mode: 'air', vx: 0, vy: 0, climb: null }); // 매달린 끝에서 ↓ → 손 놓고 떨어짐
+            p.noGrabUntil = this.scene.time.now + 400;
+          }
+        }
+      }
+    } else if (p.mode === 'ground') {
+      const grab = v ? this.findClimb(v, this.floorName) : null;
+      if (grab) {
+        Object.assign(p, { mode: 'climb', climb: grab, vx: 0, vy: 0 });
+        this.x = grab.x;
+        this.y = grab.y;
+      } else if (p.prone) {
+        // 엎드린 상태: ↓를 떼거나 ←→면 일어서고, 점프면 발판 아래로 떨어진다 (아래에 발판이 있을 때만)
+        if (jump && this.hasFloorBelow()) {
+          Object.assign(p, { mode: 'air', vx: 0, vy: 0, prone: false, dropFrom: this.floorName });
+        } else if (h || v <= 0) {
+          p.prone = false;
+        }
+      } else if (v > 0) {
+        p.prone = true; // ↓ + 잡을 사다리/로프 없음 → 엎드리기
+      } else if (jump) {
+        Object.assign(p, { mode: 'air', vx: h * walk, vy: -c.jumpVelocity });
+      } else {
+        this.x += h * walk * dt;
+        const { x1, x2 } = floorSpan(this.floor);
+        const next = this.x < x1 ? this.nextFloor[-1] : this.x > x2 ? this.nextFloor[1] : undefined;
+        if (next) this.continueTo(next); // 이어진 발판으로 걸어서 넘어감
+        if (next === null) Object.assign(p, { mode: 'air', vx: h * walk, vy: 0 }); // 발판 끝에서 떨어짐
+        else this.y = floorY(this.floor, this.x);
+      }
+      if (h) this.dir = h;
+    }
+
+    if (p.mode === 'air') {
+      if (h) {
+        p.vx = h * walk; // 공중에서도 방향 조절
+        this.dir = h;
+      }
+      const prevY = this.y;
+      p.vy += c.gravity * dt;
+      this.x = Phaser.Math.Clamp(this.x + p.vx * dt, 0, CONFIG.width);
+      this.y += p.vy * dt;
+      const canGrab = v && this.scene.time.now >= (p.noGrabUntil ?? 0);
+      const grab = canGrab ? this.findClimb(v, null) : null; // 점프 중 ↑↓ + 사다리/로프 가까이 → 매달리기
+      if (grab) {
+        Object.assign(p, { mode: 'climb', climb: grab, vx: 0, vy: 0 });
+        this.x = grab.x;
+        this.y = grab.y;
+      } else if (p.vy > 0) {
+        // 내려오는 중: 이번 프레임에 지나친 발판 중 가장 위에 착지
+        let land = null;
+        for (const [name, f] of Object.entries(CONFIG.floors)) {
+          if (!this.canStandOn(name) || name === p.dropFrom) continue; // 엎드려 뛰어내린 발판은 통과
+          const { x1, x2 } = floorSpan(f);
+          if (this.x < x1 || this.x > x2) continue;
+          const fy = floorY(f, this.x);
+          if (fy >= prevY - 0.5 && fy <= this.y && (!land || fy < land.y)) land = { name, y: fy };
+        }
+        if (land) {
+          this.landOn(land.name, land.y);
+        } else if (this.y > CONFIG.height + 100) {
+          // 맵 밖으로 떨어지면 다른 발판에서 다시 시작
+          const floor = pickGuestFloor();
+          const name = Object.keys(CONFIG.floors).find((n) => CONFIG.floors[n] === floor);
+          const { x1, x2 } = floorSpan(floor);
+          this.x = (x1 + x2) / 2;
+          this.landOn(name, floorY(floor, this.x));
+        }
+      }
+    }
+
+    // 포즈
+    if (p.mode === 'climb') {
+      const type = p.climb.type;
+      const other = type === 'ladder' ? 'rope' : 'ladder';
+      const anim = this.motions[type] ? type : this.motions[other] ? other : null;
+      this.setControlPose(`climb-${anim}`, () => {
+        this.sprite.setFlipX(false);
+        if (anim) this.sprite.play(`${key}_${anim}`);
+        else this.sprite.stop().setTexture(`${key}_0`);
+      });
+      if (anim) {
+        if (v) this.sprite.anims.resume();
+        else this.sprite.anims.pause(); // 멈춰 있으면 애니메이션도 멈춤
+      }
+    } else if (p.mode === 'air') {
+      this.setControlPose(`air-${this.dir}`, () => {
+        this.setDir(this.dir);
+        if (this.motions.jump) this.sprite.play({ key: `${key}_jump`, frameRate: 8 });
+        else this.sprite.play(`${key}_walk`);
+      });
+    } else if (p.prone) {
+      this.setControlPose(`prone-${this.dir}`, () => {
+        this.setDir(this.dir);
+        if (this.motions.prone) this.sprite.play(`${key}_prone`);
+        else if (this.motions.jump) this.sprite.stop().setTexture(`${key}_jump0`);
+        else this.sprite.stop().setTexture(`${key}_0`).setFlipX(false);
+      });
+    } else if (h) {
+      this.setControlPose(`walk-${this.dir}`, () => {
+        this.setDir(this.dir);
+        this.sprite.play(`${key}_walk`);
+      });
+    } else {
+      this.setControlPose('idle', () => {
+        this.sprite.stop();
+        this.sprite.setTexture(`${key}_0`);
+        this.sprite.setFlipX(false);
+      });
+    }
+    this.setDepth(this.y);
+  }
+
+
+  tick(delta) {
+    if (this.held) return; // 개발자 모드에서 끌고 있는 중
+    if (this.chaser) return this.tickControlled(delta, this.chaser.input(delta), this.chaser.speed);
+    if (this.controlled) return this.tickControlled(delta, this.scene.control.input);
+    if (this.posing) return this.tickPose(delta);
+    const m = CONFIG.motion;
+
+    if (this.state === 'leap') {
+      const L = this.leap;
+      L.t += delta;
+      const p = Math.min(1, L.t / L.duration);
+      const baseY = L.y0 + (L.y - L.y0) * p;
+      this.x = L.x0 + (L.x - L.x0) * p;
+      this.y = baseY - L.height * 4 * p * (1 - p);
+      this.setDepth(baseY);
+      if (p >= 1) {
+        this.setFloor(L.name);
+        this.x = L.x;
+        this.y = L.y;
+        this.leap = null;
+        this.state = 'walk';
+        this.stateTimer = Phaser.Math.Between(1200, 3000);
+        this.leapReadyAt = this.scene.time.now + 2000;
+        if (this.persona?.dust) this.landDust();
+        this.updatePose();
+      }
+      return;
+    }
+
+    if (this.state === 'climb') {
+      const step = (m.climbSpeed * delta) / 1000;
+      this.y += this.climb.dir * step;
+      this.setDepth(this.y);
+      if ((this.climb.dir > 0 && this.y >= this.climb.toY) || (this.climb.dir <= 0 && this.y <= this.climb.toY)) {
+        this.finishClimb();
+      }
+      return;
+    }
+
+    this.stateTimer -= delta;
+    if (this.stateTimer <= 0 && !this.jump) this.pickState();
+
+    let jumpOffset = 0;
+    if (this.jump) {
+      this.jump.t += delta;
+      const p = this.jump.t / this.jump.duration;
+      if (p >= 1) {
+        this.jump = null;
+        if (this.persona?.dust) this.landDust();
+        this.updatePose();
+      } else {
+        jumpOffset = m.jumpHeight * 4 * p * (1 - p); // 포물선
+      }
+    }
+
+    if (this.state === 'walk') {
+      const prevX = this.x;
+      this.x += (this.dir * this.speed * delta) / 1000;
+      if (this.x <= this.minX || this.x >= this.maxX) {
+        const edgeDir = this.x <= this.minX ? -1 : 1;
+        this.x = edgeDir < 0 ? this.minX : this.maxX;
+        const next = this.nextFloor[edgeDir];
+        // 발판 끝: 이어진 발판이면 그대로 걸어가고, 가까운 발판이 있으면 가끔 점프, 아니면 돌아선다
+        if (next) {
+          this.continueTo(next);
+        } else if (this.canJump !== false && !this.jump && this.scene.time.now >= (this.leapReadyAt ?? 0)) {
+          const targets = gapJumpTargets(this.floorName, this.x, edgeDir, (n) => this.canStandOn(n));
+          if (targets.length && Math.random() < m.gapJump.chance * (this.persona?.gap ?? 1)) {
+            return this.startLeap(Phaser.Utils.Array.GetRandom(targets));
+          }
+        }
+        if (!next) this.setDir(-edgeDir);
+      }
+
+      if (!this.jump) {
+        // 사다리/로프를 지나가면 가끔 탄다
+        const crossed = climbsOn(this.floorName).find(
+          (c) => Math.min(prevX, this.x) <= c.x && c.x <= Math.max(prevX, this.x)
+        );
+        if (crossed && this.canClimb !== false && this.scene.time.now >= this.climbReadyAt) {
+          this.climbReadyAt = this.scene.time.now + 1500; // 같은 사다리를 지나는 동안 한 번만 판정
+          if (Math.random() < Math.min(0.95, m.climbChance * (this.persona?.climb ?? 1))) return this.startClimb(crossed);
+        }
+        if (this.canJump !== false && Math.random() < (m.jumpChance * (this.persona?.jump ?? 1) * delta) / 1000) this.startJump();
+      }
+    } else if (this.idlePose === 'dance') {
+      // 춤추는 동안 통통 점프와 셔플 스텝을 번갈아 (점프 중이면 착지 후 바꿈)
+      this.danceSwitch -= delta;
+      if (this.danceSwitch <= 0 && !this.jump) this.setDanceStyle(this.danceStyle === 'hop' ? 'shuffle' : 'hop');
+      if (this.danceStyle === 'shuffle') this.tickShuffle(delta);
+      else if (!this.jump && this.canJump !== false) {
+        this.setDir(-this.dir); // 제자리에서 방향을 바꾸며 통통
+        this.startJump();
+      }
+    }
+    if (this.idlePose === 'dance') this.tickNotes(delta);
+
+    // 기울어진 구간(계단, 출렁다리)은 x에 맞춰 발 높이를 따라간다. 아래쪽 캐릭터가 앞에 그려지도록 depth도 갱신
+    const groundY = floorY(this.floor, this.x);
+    this.y = groundY - jumpOffset;
+    this.setDepth(groundY);
+  }
+}
+
+/**
+ * 신랑/신부: 제자리(couplePoint, 기본은 무대 가운데)에서 살짝 통통 튀는 모션.
+ * 고정(CONFIG.couple.fixed)이면 그 자리에 서 있고, 아니면 무대(stage*) 발판 안에서만 돌아다닌다.
+ * 개발자 모드에서는 팝업의 "조종하기"로 하객처럼 직접 움직일 수 있고, 놓으면 제자리로 돌아간다.
+ */
+class CoupleCharacter extends GuestCharacter {
+  constructor(scene, info, opts) {
+    const home = couplePoint(info.id);
+    super(scene, CONFIG.floors[home.floor], info, { ...opts, x: home.x, tagColor: '#ffe066' });
+    this.canClimb = false; // 스스로 돌아다닐 땐 사다리/로프를 안 탄다 (조종할 땐 가능)
+    if (info.id === 'bride') this.sprite.setFlipX(true); // 신랑 쪽 바라보기
+    this.bob = scene.tweens.add({
+      targets: this.sprite,
+      y: -2,
+      duration: 600,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+      delay: Phaser.Math.Between(0, 400),
+    });
+  }
+
+  applySprite(sprite) {
+    super.applySprite(sprite);
+    if (!this.controlled) this.standAtHome();
+  }
+
+  /** 제자리에서 정면을 보고 선다 */
+  standAtHome() {
+    const home = couplePoint(this.info.id);
+    this.setFloor(home.floor);
+    this.x = home.x;
+    this.y = home.y;
+    this.setDepth(this.y);
+    this.state = 'idle';
+    this.sprite.stop();
+    this.sprite.setTexture(`${this.texKey}_0`);
+    this.sprite.setFlipX(this.texKey.startsWith('sprite_') ? false : this.info.id === 'bride');
+  }
+
+  setControlled(on) {
+    if (on) {
+      this.bob.pause();
+      this.sprite.y = 0;
+    }
+    super.setControlled(on);
+    this.setFloor(this.floorName); // 조종 중엔 무대 밖 발판으로도 이어서 걸어감
+  }
+
+  /** 조종 중엔 어디든, 스스로 다닐 땐 무대만 */
+  canStandOn(name) {
+    return this.controlled || isStage(name);
+  }
+
+  /** 조종을 놓거나 지도가 바뀌면 제자리로 (하객처럼 다른 발판으로 가지 않음) */
+  onMapChanged() {
+    this.updateInfo(coupleTexts(this.info.id)); // 되돌리기로 멘트가 바뀌었을 수 있음
+    this.phys = null;
+    this.climb = null;
+    this.jump = null;
+    this.leap = null;
+    this.standAtHome();
+    this.bob.resume();
+  }
+
+  tick(delta) {
+    // 고정이면 제자리. 아니면 무대 위에서만 돌아다닌다 (이어진 무대 조각끼리만 걷거나 점프로 건너감)
+    // 단체 사진(posing) 중엔 제자리
+    if (this.controlled || (!this.posing && !coupleFixed() && isStage(this.floorName))) super.tick(delta);
+  }
+}
+
+// ---------- NPC ----------
+
+/** js/npcs.js 설정 → 캐릭터 info */
+function npcInfo(npc) {
+  const dir = `img/npc/${npc.id}`;
+  const url = (m) => npc.images?.[m] ?? `${dir}/${m}.webp`; // 막 추가해서 아직 저장 안 한 NPC는 data URL
+  const info = {
+    id: `npc-${npc.id}${npc.imagesRev ? `-${npc.imagesRev}` : ''}`, // 이미지를 바꿨으면 텍스처를 새로 불러오게 다른 키
+    npc: true,
+    ...npcTexts(npc),
+    spriteUrl: url('front'),
+    walkUrl: npc.motions.includes('walk') ? url('walk') : null,
+    extraMotions: npc.motions.filter((m) => m !== 'walk'),
+    height: npc.height,
+    motionFrames: npc.motionFrames,
+    motionHeight: npc.motionHeight,
+  };
+  for (const m of info.extraMotions) info[`${m}Url`] = url(m);
+  return info;
+}
+
+/** NPC 이름·한줄 멘트·소개 글: 개발자 모드 설정(CONFIG.npcs)이 있으면 그것, 없으면 js/npcs.js */
+function npcTexts(npc) {
+  const s = CONFIG.npcs[npc.id] ?? {};
+  return {
+    name: s.name || npc.name,
+    shortMsg: s.shortMsg ?? npc.popup?.shortMsg ?? '',
+    longMsg: s.longMsg ?? npc.popup?.longMsg ?? '',
+  };
+}
+
+/** 신랑·신부 이름·한줄 멘트·소개 글: 개발자 모드 설정(CONFIG.npcs.groom/bride)이 있으면 그것, 없으면 js/data.js COUPLE */
+function coupleTexts(id) {
+  const base = COUPLE.find((c) => c.id === id);
+  return npcTexts({ id, name: base.name, popup: base });
+}
+
+/** 움직임 이미지가 없는 NPC(사물: 택시, 가만히로 추가한 NPC) → 발판과 상관없이 아무 데나(공중도) 놓을 수 있다 */
+function isStaticNpc(npc) {
+  return !npc.motions?.length;
+}
+
+/**
+ * NPC 배치 방식 (개발자 모드 NPC 설정, CONFIG.npcs[id].mode)
+ * fixed = 자리(floor, x)에 서 있음 · random = 접속할 때마다 아무 발판 · stage = 무대 안에서만 돌아다님
+ * default = 처음 발판에서 돌아다님 — CONFIG.npcs[id].floor·x(개발자 모드에서 끌어 놓은 자리), 없으면 js/npcs.js (npc.fixed면 fixed)
+ */
+function npcMode(npc) {
+  return CONFIG.npcs[npc.id]?.mode ?? (npc.fixed ? 'fixed' : 'default');
+}
+
+/** NPC가 설 자리 { floor: 발판 이름, x: x | null(랜덤) } */
+function npcHome(npc) {
+  const s = CONFIG.npcs[npc.id] ?? {};
+  const mode = npcMode(npc);
+  // 가만히 있는 NPC(움직임 없음)는 발판과 상관없이 x, y 그대로 (공중도 가능). floor는 내부 계산용
+  if (mode === 'fixed' && s.y != null && s.x != null) return { floor: CONFIG.floors[s.floor] ? s.floor : mainStageName(), x: s.x, y: s.y };
+  if (mode === 'fixed' && CONFIG.floors[s.floor] && s.x != null) return { floor: s.floor, x: s.x };
+  if (mode === 'stage') return { floor: mainStageName(), x: null };
+  if (mode === 'default' && CONFIG.floors[s.floor]) return { floor: s.floor, x: s.x ?? null }; // 개발자 모드에서 끌어서 정한 처음 자리
+  if (mode !== 'random' && CONFIG.floors[npc.floor]) return { floor: npc.floor, x: npc.x ?? null };
+  // 랜덤 (또는 처음 발판이 없어짐) — 사다리/로프로 거의 덮인 짧은 발판은 피한다
+  return { floor: randomNpcFloor(), x: null };
+}
+
+/** NPC 랜덤 발판: 길이에 비례해 고르되, 사다리/로프를 피해 설 자리가 있고 NPC_MIN_SPAN 이상 걸을 수 있는 발판 */
+function randomNpcFloor() {
+  let floor;
+  for (let i = 0; !floor && i < 20; i++) {
+    const f = pickGuestFloor();
+    const { x1, x2 } = floorSpan(f);
+    if (i === 19 || (x2 - x1 >= NPC_MIN_SPAN + CHAR_W && xClearOfClimbs(f, x1 + CHAR_W / 2, x2 - CHAR_W / 2) != null)) floor = f;
+  }
+  return Object.keys(CONFIG.floors).find((n) => CONFIG.floors[n] === floor);
+}
+
+// 사다리/로프를 못 타는 NPC가 시작할 때 사다리/로프에서 떨어질 가로 거리, 최소로 걸을 수 있어야 하는 폭 (px)
+const NPC_CLIMB_CLEARANCE = 60;
+const NPC_MIN_SPAN = 40;
+
+/** 발판 위 minX~maxX에서 사다리/로프와 NPC_CLIMB_CLEARANCE 이상 떨어진 랜덤 x (못 찾으면 null) */
+function xClearOfClimbs(floor, minX, maxX) {
+  if (!(maxX >= minX)) return null;
+  const onClimb = (x) => {
+    const y = floorY(floor, x);
+    return CONFIG.climbs.some((c) => {
+      if (!c.floors.every((n) => CONFIG.floors[n]) || Math.abs(c.x - x) >= NPC_CLIMB_CLEARANCE) return false;
+      const { top, bottom } = climbEnds(c);
+      return top.y < y + 2 && bottom.y > y - CHAR_H; // 캐릭터 높이 구간과 사다리 세로 구간이 겹침
+    });
+  };
+  for (let i = 0; i < 30; i++) {
+    const x = Phaser.Math.Between(Math.ceil(minX), Math.floor(maxX));
+    if (!onClimb(x)) return x;
+  }
+  return null;
+}
+
+/**
+ * NPC: 자기 발판(이어진 발판 포함) 위만 돌아다니고 점프·사다리·로프는 안 쓴다. 조종 불가.
+ * 서기(idle)/걷기(walk)/자기(sleep) 애니메이션을 쓰고, 효과(꽃가루·비눗방울·음표)를 낼 수 있다.
+ */
+class NpcCharacter extends GuestCharacter {
+  constructor(scene, npc, opts) {
+    const home = npcHome(npc);
+    super(scene, CONFIG.floors[home.floor], npcInfo(npc), { ...opts, x: home.x ?? undefined, tagColor: '#c9f2ff' });
+    this.npc = npc;
+    this.canClimb = false;
+    this.canJump = false;
+    this.pose = 'idle'; // 현재 동작 (idle | walk | sleep | scratch …)
+    if (npc.speed) this.speed = Phaser.Math.Between(...npc.speed);
+    this.placeAt(home);
+    this.effect = npc.effect ? new NpcEffect(scene, this, npc.effect) : null;
+  }
+
+  get mode() {
+    return this.npc ? npcMode(this.npc) : 'default';
+  }
+
+  // 이벤트(게임) NPC는 하객에게 둘러싸여도 맨 앞에: 캐릭터 depth = 발 y(맵 높이 1402 이하)라 5000을 더하면 늘 위 (꽃잎 15000보다는 아래)
+  setDepth(depth) {
+    return super.setDepth(this.npc?.event ? depth + 5000 : depth);
+  }
+
+  /** 자리 { floor, x }에 선다 (x가 null이면 사다리/로프를 피한 랜덤 위치) */
+  placeAt({ floor, x, y }) {
+    this.placedMode = this.mode;
+    this.state = 'idle';
+    this.pose = 'idle';
+    this.setFloor(floor);
+    this.freeY = y ?? null; // 발판 없이 놓인 자리 (가만히 있는 NPC)
+    if (y != null) {
+      this.x = x;
+      this.y = y;
+    } else {
+      if (x == null) {
+        // 랜덤 자리: 사다리/로프에서 떨어진 곳이 없거나 걸을 폭이 좁으면 (무대 모드가 아니면) 다른 발판으로
+        let free = this.maxX - this.minX >= NPC_MIN_SPAN ? xClearOfClimbs(this.floor, this.minX, this.maxX) : null;
+        for (let i = 0; free == null && i < 10 && this.mode !== 'stage'; i++) {
+          this.setFloor(randomNpcFloor());
+          if (this.maxX - this.minX >= NPC_MIN_SPAN) free = xClearOfClimbs(this.floor, this.minX, this.maxX);
+        }
+        x = free ?? (this.minX + this.maxX) / 2;
+      }
+      this.x = Phaser.Math.Clamp(x, Math.min(this.minX, this.maxX), Math.max(this.minX, this.maxX));
+      this.y = floorY(this.floor, this.x);
+    }
+    this.setDepth(this.y);
+    this.updatePose();
+    if (this.npc.tilt) this.alignToFloor();
+  }
+
+  /** 무대 모드면 무대(stage*)만 */
+  canStandOn(name) {
+    return this.mode !== 'stage' || isStage(name);
+  }
+
+  /** npc.tilt면 발판 기울기에 맞춰 살짝 기울인다 (옆모습 이미지용. 3/4 입체 이미지는 똑바로 두는 게 자연스럽다) */
+  alignToFloor() {
+    if (this.freeY != null) return this.sprite.setRotation(0); // 공중에 놓인 자리는 똑바로
+    const slope = (floorY(this.floor, this.x + 8) - floorY(this.floor, this.x - 8)) / 16;
+    this.sprite.setRotation(Math.atan(slope));
+  }
+
+  pickState() {
+    const st = this.npc.states;
+    if (!st) return super.pickState();
+    // walk / 특수 동작(sleep, scratch …) / 나머지는 idle
+    let r = Math.random();
+    this.pose = 'idle';
+    for (const [name, p] of Object.entries(st)) {
+      if (typeof p !== 'number' || name === 'idle') continue;
+      if (r < p) {
+        this.pose = name;
+        break;
+      }
+      r -= p;
+    }
+    this.state = this.pose === 'walk' ? 'walk' : 'idle';
+    this.stateTimer = Phaser.Math.Between(...(st[`${this.pose}Time`] ?? st.idleTime));
+    if (this.pose === 'walk' && Math.random() < 0.5) this.dir = -this.dir;
+    this.updatePose();
+  }
+
+  updatePose() {
+    const key = this.texKey;
+    const has = (m) => this.motions[m];
+    const pose = this.state === 'walk' ? 'walk' : this.pose ?? 'idle';
+    const anim = has(pose) ? pose : this.state === 'walk' ? 'walk' : 'idle';
+    if (has(anim)) {
+      this.setDir(this.dir);
+      this.sprite.play(`${key}_${anim}`, true);
+    } else {
+      this.sprite.stop();
+      this.sprite.setTexture(`${key}_0`);
+      this.sprite.setFlipX(false);
+    }
+  }
+
+  dropAt(name, x) {
+    this.pose = 'idle'; // 자던 중이었어도 내려놓으면 깨어남
+    super.dropAt(name, x);
+    if (this.npc.tilt) this.alignToFloor();
+  }
+
+  onMapChanged() {
+    this.updateInfo(npcTexts(this.npc)); // 되돌리기로 이름·멘트가 바뀌었을 수 있음
+    // 배치 방식이 바뀌었거나, 고정인데 자리가 바뀌었거나, 서 있던 발판에 설 수 없으면 새 자리로
+    const home = npcHome(this.npc);
+    const moved = this.mode === 'fixed' && (home.floor !== this.floorName || home.x !== this.x || (home.y ?? null) !== this.freeY);
+    if (this.placedMode !== this.mode || moved || !CONFIG.floors[this.floorName] || !this.canStandOn(this.floorName)) return this.placeAt(home);
+    if (this.mode === 'fixed') {
+      if (this.freeY != null) return; // 발판 없이 놓인 자리는 지도를 바꿔도 그대로
+      this.y = floorY(this.floor, this.x);
+      if (this.npc.tilt) this.alignToFloor();
+      return;
+    }
+    super.onMapChanged();
+  }
+
+  tick(delta) {
+    if (this.posing || this.mode !== 'fixed') super.tick(delta);
+    this.effect?.update();
+  }
+
+  /** 효과 파티클은 캐릭터 밖(씬)에 있어서 따로 지운다 (안 그러면 삭제·이미지 교체 뒤에도 그 자리에서 계속 뿌림) */
+  destroy(fromScene) {
+    this.effect?.destroy();
+    this.effect = null;
+    super.destroy(fromScene);
+  }
+}
+
+/** NPC 효과: petals = 늘 꽃가루를 뿌림, bubbles = 서 있으면 비눗방울 / 걸으면 나팔 음표 */
+class NpcEffect {
+  constructor(scene, npc, type) {
+    this.npc = npc;
+    this.type = type;
+    NpcEffect.ensureTextures(scene);
+    const fade = { alpha: { start: 0.95, end: 0 } };
+    if (type === 'petals') {
+      this.emitters = {
+        petals: scene.add.particles(0, 0, 'petal0', {
+          speedX: { min: -40, max: 40 },
+          speedY: { min: -75, max: -30 },
+          gravityY: 80,
+          lifespan: 1500,
+          scale: { min: 0.35, max: 0.55 },
+          rotate: { start: 0, end: 360 },
+          tint: [0xffffff, 0xffe3ec, 0xfff4c8],
+          frequency: 160,
+          ...fade,
+        }),
+      };
+    } else {
+      // 비눗방울은 바라보는 쪽으로 날아가야 해서 방향별로 하나씩
+      const bubble = (sign) =>
+        scene.add.particles(0, 0, 'fx-bubble', {
+          speedX: sign > 0 ? { min: 25, max: 55 } : { min: -55, max: -25 },
+          speedY: { min: -30, max: -8 },
+          gravityY: -10,
+          lifespan: 2600,
+          scale: { min: 0.35, max: 0.9 },
+          frequency: 260,
+          ...fade,
+          emitting: false,
+        });
+      this.emitters = {
+        bubbleL: bubble(-1),
+        bubbleR: bubble(1),
+        notes: scene.add.particles(0, 0, 'fx-note', {
+          speedX: { min: -12, max: 12 },
+          speedY: { min: -45, max: -25 },
+          lifespan: 1400,
+          scale: { min: 0.45, max: 0.7 },
+          tint: [0xff7aa8, 0x7ab8ff, 0xffc93c],
+          frequency: 380,
+          ...fade,
+          emitting: false,
+        }),
+      };
+    }
+  }
+
+  static ensureTextures(scene) {
+    if (!scene.textures.exists('fx-bubble')) {
+      const g = scene.make.graphics({ x: 0, y: 0 }, false);
+      g.fillStyle(0xcfefff, 0.35).fillCircle(12, 12, 10);
+      g.lineStyle(2, 0xffffff, 0.95).strokeCircle(12, 12, 10);
+      g.fillStyle(0xffffff, 0.95).fillCircle(8, 8, 2.5);
+      g.generateTexture('fx-bubble', 24, 24);
+      g.destroy();
+    }
+    if (!scene.textures.exists('fx-note')) {
+      const tex = scene.textures.createCanvas('fx-note', 28, 32);
+      const ctx = tex.getContext();
+      ctx.font = 'bold 26px sans-serif';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(80, 40, 60, .55)';
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeText('♪', 4, 26);
+      ctx.fillText('♪', 4, 26);
+      tex.refresh();
+    }
+  }
+
+  destroy() {
+    Object.values(this.emitters).forEach((e) => e.destroy());
+  }
+
+  /** 매 프레임: 입/손 위치로 따라가고, 상태에 맞는 효과만 켠다 */
+  update() {
+    const npc = this.npc;
+    const h = npc.sprite.displayHeight;
+    const facing = npc.dir; // 이미지가 왼쪽을 보고, setDir로 뒤집으므로 dir = 바라보는 쪽
+    const x = npc.x + facing * npc.sprite.displayWidth * 0.3;
+    const y = npc.y - h * 0.6;
+    const set = (e, on) => {
+      e.setPosition(x, y).setDepth(npc.depth + 1);
+      if (on && !e.emitting) e.start();
+      else if (!on && e.emitting) e.stop();
+    };
+    const visible = npc.visible;
+    if (this.type === 'petals') {
+      set(this.emitters.petals, visible);
+    } else {
+      const walking = npc.state === 'walk';
+      set(this.emitters.bubbleL, visible && !walking && facing < 0);
+      set(this.emitters.bubbleR, visible && !walking && facing > 0);
+      set(this.emitters.notes, visible && walking);
+    }
+  }
+}

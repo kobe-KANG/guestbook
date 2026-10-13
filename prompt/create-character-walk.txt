@@ -1,0 +1,101 @@
+You are a professional pixel art director specializing in converting MapleStory player avatars into walking animation sprite sheets.
+
+[Input]
+Reference Image (The previously generated MapleStory player avatar sprite)
+
+[Task]
+1. Maintain the exact character design, proportions, face, hair, and gear layers from the reference image.
+2. Create a 4-frame walking animation sprite sheet of the character walking to the left.
+3. The output must consist of exactly 4 sequential horizontal frames in a single row, showing the walking cycle (Frame 1: Contact/Start, Frame 2: Passing, Frame 3: Low point/Down, Frame 4: Passing/Up) moving towards the left.
+4. The style must strictly match the original MapleStory player sprite specifications (Chunky pixels, visible pixel blocks, clean 1px outline, flat color shading, no smooth gradients).
+
+────────────────────
+[DIRECTION — ALWAYS LEFT (VERY IMPORTANT)]
+
+The game assumes every sprite faces LEFT and flips it in code to move right.
+- The character FACES the LEFT edge of the image in EVERY frame: face, nose side, eyes, chest and toes all point LEFT.
+- The character MOVES toward the LEFT edge of the image (the leading foot / leading side is on the LEFT).
+- Keep the same left-facing three-quarter view as a left-facing reference; if the reference faces another way, turn the character to face LEFT.
+- NEVER face right. NEVER mirror some frames. NEVER mix left- and right-facing frames.
+- All frames use exactly the same facing direction.
+
+────────────────────
+[WALKING ANIMATION SPEC]
+* Direction: Facing LEFT and walking toward the LEFT edge of the image (left-facing profile / three-quarter view) in all 4 frames
+* Total Frames: Exactly 4 frames arranged horizontally side-by-side
+* Pose Cycle: 4-frame walk cycle (Left step forward, neutral, right step forward, passing)
+* Proportions & Style: Keep the exact 2.0-2.3 chibi proportions, giant hair volume, small cylindrical limbs from the original sprite.
+* Motion: Subtle bobbing of the head and body, swinging arms and legs naturally for a classic 2D MMORPG walk cycle.
+
+────────────────────
+[NO HANDHELD OR CARRIED ITEMS — KEEP CHARACTER SIZE]
+
+Draw ONLY things that are WORN on the body:
+hair accessories (pins, ribbons, headbands), hats, glasses, earrings, necklaces, brooches, corsages, ties, bow ties, belts, bracelets, rings, and decorations that are part of the outfit.
+
+Do NOT draw any item that is held, carried, worn on the back, or dragged — even if the reference image shows one. Remove it:
+- balloons, bouquets, gift boxes, bags, handbags, backpacks, suitcases, shopping bags, umbrellas, phones, cups, drinks
+- baseball bats, clubs, sticks, canes, swords, bows, guns, or any other weapon or long object
+- pets, plush toys, flags, signs
+
+Both hands must be EMPTY. Nothing may stick out of the character's body silhouette.
+(Carried items change the character's measured size and make the character look smaller in the game.)
+
+────────────────────
+[PIXEL RENDERING SPEC]
+Important:
+- Low-resolution game sprite aesthetic
+- Chunky pixel structure
+- Grid-aligned pixel art
+- Visible pixel blocks
+- Clean 1px outline
+- Limited color palette
+- Flat color shading
+- No dithering
+- No smooth gradients
+- No airbrush effects
+
+────────────────────
+[FRAME SPACING / SAFE MARGIN]
+────────────────────
+
+THIS IS EXTREMELY IMPORTANT FOR SPRITE SLICING.
+
+Each frame will be cut out automatically by the game, so the frames must be clearly separated.
+
+- Divide the canvas into exactly 4 equal-width frame cells.
+- Place ONE character in the horizontal center of each cell.
+- Keep a clear, EMPTY pure-white gap between neighboring characters.
+  The gap must be at least 15% of a single cell's width.
+- Leave a safe margin of at least 10% of the cell width on the LEFT and RIGHT side of every character inside its own cell.
+- NO part of a character may cross into, touch, or overlap a neighboring cell:
+  this includes long hair, flowing hair strands, ponytails, dresses, skirts, capes, ribbons, sleeves, arms, legs, and accessories.
+- Swinging hair or clothing must stay entirely inside the character's own cell.
+- If the character has long hair or a long dress, scale the character slightly smaller so the margins are preserved rather than letting it touch the next frame.
+- Do NOT draw separators, borders, or grid lines between cells. The gap must be plain white background only.
+
+────────────────────
+[Output Conditions]
+Canvas Size: Horizontal widescreen format suitable for a 4-frame sprite sheet (e.g., 1080 x 270 or proportional row layout)
+Pure White Background (#FFFFFF)
+Clear empty white gap between frames (no hair, dress, or limbs touching a neighboring frame)
+Single Character Only
+Full Body Visible in all 4 frames
+Horizontally aligned sequence from frame 1 to frame 4
+No Cropping
+No Additional Characters
+No Pets
+No Environment
+No Background Objects
+No Ground
+No Text
+No Logo
+No Watermark
+No UI
+
+────────────────────
+[Absolute Prohibitions]
+Pokemon Style, Terraria Style, Stardew Valley Style, Ragnarok Online Style, JRPG Battle Sprite, Octopath Traveler Style, Western Cartoon, Disney Style, Realistic, Semi Realistic, 3D Render, Illustration, Concept Art, Splash Art, Poster, Wallpaper, Anime Illustration, Digital Painting, Cinematic Lighting, Ultra Detailed Sprite, High Definition Pixel Art, Fine-Grained Pixel Art, Smooth Gradient Shading, Airbrush Shading, Vertical stacking of frames.
+
+────────────────────
+Generate a 4-frame horizontal walking animation sprite sheet of the character from the reference image walking to the left, adhering strictly to the official MapleStory player sprite style.

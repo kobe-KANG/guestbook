@@ -1,0 +1,70 @@
+// API 함수 공통: CORS, JSON 응답, 에러 처리, 개발자 비밀번호 확인
+import { timingSafeEqual } from 'node:crypto';
+// (api/ 아래 _로 시작하는 파일은 Vercel이 엔드포인트로 만들지 않는다)
+
+// 기본: 데이터 저장소 주인의 GitHub Pages(https://<owner>.github.io) + 로컬 서버. 직접 도메인을 쓰면 ALLOWED_ORIGINS로
+const ALLOWED_ORIGINS = (
+  process.env.ALLOWED_ORIGINS ||
+  `https://${(process.env.DATA_REPO || '').split('/')[0].toLowerCase()}.github.io,http://localhost:8765,http://127.0.0.1:8765`
+)
+  .split(',')
+  .map((s) => s.trim());
+
+/** 개발자 모드 비밀번호(DEV_PASSWORD)가 맞는지 (없으면 503) */
+export function checkDevPassword(value) {
+  if (!process.env.DEV_PASSWORD) throw new HttpError(503, '개발자 모드가 설정되지 않았어요. (DEV_PASSWORD)');
+  const a = Buffer.from(String(value ?? ''));
+  const b = Buffer.from(process.env.DEV_PASSWORD);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) throw new HttpError(401, '비밀번호가 맞지 않아요.');
+}
+
+export class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export function corsHeaders(request) {
+  const origin = request.headers.get('Origin') || '';
+  const headers = {
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    Vary: 'Origin',
+  };
+  if (ALLOWED_ORIGINS.includes(origin)) headers['Access-Control-Allow-Origin'] = origin;
+  return headers;
+}
+
+export function json(data, status, headers) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...headers, 'Content-Type': 'application/json; charset=utf-8' },
+  });
+}
+
+export async function readJson(request) {
+  try {
+    return await request.json();
+  } catch {
+    throw new HttpError(400, '잘못된 요청 형식입니다.');
+  }
+}
+
+export function preflight(request) {
+  return new Response(null, { status: 204, headers: corsHeaders(request) });
+}
+
+/** 허용 출처 확인 + 에러를 JSON 응답으로 바꿔주는 POST 핸들러 래퍼. handler는 { status, body }를 반환. */
+export async function handlePost(request, handler) {
+  const cors = corsHeaders(request);
+  try {
+    if (!cors['Access-Control-Allow-Origin']) throw new HttpError(403, '허용되지 않은 출처입니다.');
+    const { status, body } = await handler(await readJson(request));
+    return json(body, status, cors);
+  } catch (err) {
+    const status = err instanceof HttpError ? err.status : 500;
+    if (status === 500) console.error(err);
+    return json({ error: status === 500 ? '서버 오류가 발생했습니다.' : err.message }, status, cors);
+  }
+}
