@@ -10,3 +10,4 @@ img/npc/*/origin.*
 
 # 사적인 데이터 저장소를 clone해 두는 곳 (로컬 개발용, scripts/serve.mjs가 이 위에 덮어서 보여 줌)
 content/
+.playwright-mcp/
